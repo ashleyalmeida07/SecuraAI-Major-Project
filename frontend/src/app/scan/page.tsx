@@ -7,10 +7,26 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { 
   Bug, Brain, Map, Radio, ClipboardCheck, Scale,
   Globe, ShieldCheck, Search, Loader2, CheckCircle2, XCircle,
-  Activity, ArrowRight, Link2, Tag, FileText, AlertTriangle
+  Activity, ArrowRight, Link2, Tag, FileText, AlertTriangle,
+  Check, CircleCheck, ExternalLink
 } from "lucide-react";
 import { scanFullStream, scanReconStream } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { AgentPlanning, PlanStep } from "@/components/ui/ai-planning";
 
 type ScanMode = "full" | "recon";
 type NodeStatus = "idle" | "active" | "done" | "error";
@@ -364,6 +380,8 @@ export default function ScanPage() {
   const progressPct = scanning || scanComplete
     ? Math.round((completedCount / activeNodes.length) * 100)
     : 0;
+    
+  const nodeStatesRef = useRef<Record<string, any>>({});
 
   const handleScan = async () => {
     if (!url.trim()) { setError("Please enter a target URL"); return; }
@@ -395,6 +413,9 @@ export default function ScanPage() {
             return next;
           });
           setActiveNodeId(null);
+
+          // Store raw state for final reconstruction
+          nodeStatesRef.current[nodeName] = data.state;
 
           // Parse the human-readable event
           const parsed = parseNodeEvent(nodeName, data.state);
@@ -430,6 +451,32 @@ export default function ScanPage() {
       setScanComplete(true);
       setCurrentActivity("Scan complete — all nodes finished.");
 
+      // Reconstruct final payload and save to history
+      const finalSurface = nodeStatesRef.current["surface_report"]?.surface_report || {};
+      const finalAudit = scanMode === "full" ? (nodeStatesRef.current["severity_scorer"]?.audit_report || {}) : null;
+      
+      const scanData = scanMode === "recon"
+        ? { status: "success", surface_report: finalSurface, errors: [] }
+        : { status: "success", surface_report: finalSurface, header_audit_report: finalAudit, errors: [] };
+        
+      const newScanRecord = {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        url,
+        mode: scanMode,
+        data: scanData
+      };
+
+      const historyRaw = localStorage.getItem("authtrack_scan_history");
+      const history = historyRaw ? JSON.parse(historyRaw) : [];
+      history.unshift(newScanRecord);
+      localStorage.setItem("authtrack_scan_history", JSON.stringify(history));
+      
+      // Keep sessionStorage for immediate fallback
+      sessionStorage.setItem("authtrack_scan_result", JSON.stringify(scanData));
+      sessionStorage.setItem("authtrack_scan_mode", scanMode);
+      sessionStorage.setItem("authtrack_scan_url", url);
+
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Scan failed. Is the backend running?";
       setError(errMsg);
@@ -442,68 +489,208 @@ export default function ScanPage() {
     <DashboardLayout activeId="scan-static">
       <div className="max-w-5xl mx-auto flex flex-col gap-6">
 
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3 text-foreground">
-            <Search className="h-8 w-8 text-primary" />
-            Security Scanner
-          </h1>
-          <p className="text-muted-foreground mt-1">Enter a URL. Watch each AI agent work step by step.</p>
-        </div>
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:gap-12">
+          <div className="mt-2 lg:col-span-7">
+            <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+              <Search className="h-6 w-6 text-primary" />
+              Configure Security Scan
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Enter a URL to execute a multi-agent security crawl and audit. Watch each AI agent work step by step.
+            </p>
 
-        {/* Input Panel */}
-        <div className="bg-card border border-border/50 rounded-xl p-6 shadow-sm">
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-              <label htmlFor="target-url" className="text-sm font-medium text-foreground">Target URL</label>
-              <div className="relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <input
-                  id="target-url" type="url"
-                  className="block w-full pl-10 pr-3 py-2.5 border border-border/50 rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
-                  placeholder="https://example.com"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !scanning && handleScan()}
+            <div className="mt-8 space-y-6">
+              <div>
+                <Label htmlFor="target-url" className="font-medium">
+                  Target URL
+                </Label>
+                <div className="relative mt-2">
+                  <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input 
+                    id="target-url" 
+                    type="url"
+                    className="pl-10 h-11 bg-background focus-visible:ring-primary"
+                    placeholder="https://example.com"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !scanning && handleScan()}
+                    disabled={scanning}
+                  />
+                </div>
+                {!url.trim() && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Enter a valid URL to enable scan.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="max-depth" className="font-medium">
+                  Crawl Depth
+                </Label>
+                <Select
+                  value={String(maxDepth)}
+                  onValueChange={(val) => setMaxDepth(Number(val))}
                   disabled={scanning}
-                />
-              </div>
-              {!url.trim() && <span className="text-xs text-muted-foreground">Enter a valid URL to enable scan.</span>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2">
-                <label htmlFor="max-depth" className="text-sm font-medium text-foreground">Crawl Depth</label>
-                <select id="max-depth"
-                  className="w-full px-3 py-2 border border-border/50 rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary outline-none"
-                  value={maxDepth} onChange={(e) => setMaxDepth(Number(e.target.value))} disabled={scanning}>
-                  <option value={1}>1 — Surface only</option>
-                  <option value={2}>2 — One level deep</option>
-                  <option value={3}>3 — Deep crawl</option>
-                </select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <label htmlFor="scan-mode" className="text-sm font-medium text-foreground">Scan Mode</label>
-                <select id="scan-mode"
-                  className="w-full px-3 py-2 border border-border/50 rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary outline-none"
-                  value={scanMode} onChange={(e) => setScanMode(e.target.value as ScanMode)} disabled={scanning}>
-                  <option value="full">Full Scan (Recon + Header Audit)</option>
-                  <option value="recon">Recon Only (Surface Mapping)</option>
-                </select>
+                >
+                  <SelectTrigger id="max-depth" className="mt-2 h-11 w-full bg-background focus:ring-primary">
+                    <SelectValue placeholder="Select depth" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 — Surface only</SelectItem>
+                    <SelectItem value="2">2 — One level deep</SelectItem>
+                    <SelectItem value="3">3 — Deep crawl</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  For faster results, choose a lower crawl depth.
+                </p>
               </div>
             </div>
 
-            <Button size="lg" className="w-full font-semibold" onClick={handleScan} disabled={scanning || !url.trim()}>
-              {scanning ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Scanning...</> :
-                          <><Activity className="mr-2 h-5 w-5" />Start Scan</>}
-            </Button>
+            <h4 className="mt-12 font-medium">
+              Scan Mode<span className="text-red-500">*</span>
+            </h4>
+            <RadioGroup
+              value={scanMode}
+              onValueChange={(value) => setScanMode(value as ScanMode)}
+              disabled={scanning}
+              className="mt-4 space-y-4"
+            >
+              <label
+                htmlFor="recon"
+                className={cn(
+                  "relative block cursor-pointer rounded-md border bg-background transition",
+                  scanMode === "recon"
+                    ? "border-primary/20 ring-2 ring-primary/20"
+                    : "border-border"
+                )}
+              >
+                <div className="flex items-start space-x-4 px-6 py-4">
+                  <div className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center">
+                    <RadioGroupItem value="recon" id="recon" />
+                  </div>
+                  <div className="w-full">
+                    <div className="leading-6 flex items-center">
+                      <span className="font-semibold text-foreground">
+                        Recon Only
+                      </span>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Surface mapping and crawling
+                      </li>
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Identifies open forms and assets
+                      </li>
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Fastest execution time
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-b-md border-t border-border bg-muted px-6 py-3">
+                  <span className="text-sm text-primary">Map attack surface</span>
+                </div>
+              </label>
+
+              <label
+                htmlFor="full"
+                className={cn(
+                  "relative block cursor-pointer rounded-md border bg-background transition",
+                  scanMode === "full"
+                    ? "border-primary/20 ring-2 ring-primary/20"
+                    : "border-border"
+                )}
+              >
+                <div className="flex items-start space-x-4 px-6 py-4">
+                  <div className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center">
+                    <RadioGroupItem value="full" id="full" />
+                  </div>
+                  <div className="w-full">
+                    <div className="leading-6 flex items-center">
+                      <span className="font-semibold text-foreground">
+                        Full Scan
+                      </span>
+                      <Badge variant="secondary" className="ml-2">
+                        recommended
+                      </Badge>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Everything in Recon Only
+                      </li>
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Header security misconfiguration audit
+                      </li>
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Detailed vulnerability reporting
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-b-md border-t border-border bg-muted px-6 py-3">
+                  <span className="text-sm text-primary">Comprehensive audit</span>
+                </div>
+              </label>
+            </RadioGroup>
 
             {error && (
-              <div className="bg-destructive/10 border border-destructive/50 text-destructive px-4 py-3 rounded-lg flex items-center gap-3">
-                <XCircle className="h-5 w-5 shrink-0" /><span className="text-sm font-medium">{error}</span>
+              <div className="mt-6 bg-destructive/10 border border-destructive/50 text-destructive px-4 py-3 rounded-lg flex items-center gap-3">
+                <XCircle className="h-5 w-5 shrink-0" />
+                <span className="text-sm font-medium">{error}</span>
               </div>
             )}
           </div>
+
+          <div className="lg:col-span-5">
+            <Card className="bg-muted">
+              <CardContent className="pt-6">
+                <h4 className="text-sm font-semibold text-foreground">
+                  About the AI Security Engine
+                </h4>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Our flexible scan modes are designed to adapt to your security needs. Watch live as our multi-agent framework dissects your target.
+                </p>
+                <ul className="mt-4 space-y-3">
+                  <li className="flex items-start space-x-2 text-foreground">
+                    <CircleCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                    <span className="text-sm">Powered by LangGraph multi-agent orchestration</span>
+                  </li>
+                  <li className="flex items-start space-x-2 text-foreground">
+                    <CircleCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                    <span className="text-sm">Real-time terminal execution logging</span>
+                  </li>
+                  <li className="flex items-start space-x-2 text-foreground">
+                    <CircleCheck className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                    <span className="text-sm">Identifies endpoints, forms, and hidden assets</span>
+                  </li>
+                </ul>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <Separator className="my-6" />
+
+        <div className="flex items-center justify-end space-x-4">
+          <Button 
+            onClick={handleScan} 
+            disabled={scanning || !url.trim()}
+            className="whitespace-nowrap px-8 bg-white hover:bg-neutral-200 text-black font-medium transition-colors border-none"
+          >
+            {scanning ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scanning...</>
+            ) : (
+              <><Activity className="mr-2 h-4 w-4" />Start Scan</>
+            )}
+          </Button>
         </div>
 
         {/* Step-by-step panel — only shown during/after scan */}
@@ -527,42 +714,49 @@ export default function ScanPage() {
               )}
             </div>
 
-            {/* Flow 1 Nodes */}
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="bg-primary/10 text-primary text-xs font-bold px-2 py-1 rounded-md uppercase tracking-wider">Flow 1</span>
-                <span className="text-sm text-muted-foreground">Recon & Surface Mapping</span>
-              </div>
-              {flow1Nodes.map((node) => (
-                <NodeCard key={node.id} node={node} status={getNodeStatus(node.id)} event={nodeEvents[node.id]} />
-              ))}
-            </div>
+            {(() => {
+              const planSteps: PlanStep[] = activeNodes.map((node, index) => {
+                const status = nodeStatuses[node.id] || "idle";
+                const event = nodeEvents[node.id];
+                
+                // Determine step status
+                let mappedStatus: "pending" | "active" | "success" | "error" = "pending";
+                if (status === "done") mappedStatus = "success";
+                else if (status === "error") mappedStatus = "error";
+                // If it's idle, check if previous is done, if so it's active. If first node, it's active when scanning.
+                else if (scanning) {
+                  if (index === 0 && !nodeStatuses[node.id]) mappedStatus = "active";
+                  else if (index > 0 && nodeStatuses[activeNodes[index - 1].id] === "done") mappedStatus = "active";
+                }
 
-            {/* Handoff Banner */}
-            {scanMode === "full" && (
-              <div className="flex items-center gap-3 py-1">
-                <div className="flex-1 h-px bg-border/50" />
-                <div className="flex items-center gap-2 bg-card border border-border/50 px-3 py-1.5 rounded-full text-xs text-muted-foreground">
-                  <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-                  Endpoints handed off to Flow 2
-                  <ArrowRight className="h-3 w-3 text-primary" />
-                </div>
-                <div className="flex-1 h-px bg-border/50" />
-              </div>
-            )}
+                const Icon = node.icon;
+                
+                let content = undefined;
+                if (mappedStatus === "success" && event) {
+                  content = event.details;
+                } else if (mappedStatus === "active") {
+                  content = (
+                    <div className="space-y-3 font-mono text-[11px] mt-2">
+                      <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>{node.activeDesc}</span>
+                      </div>
+                    </div>
+                  );
+                }
 
-            {/* Flow 2 Nodes */}
-            {scanMode === "full" && (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="bg-primary/10 text-primary text-xs font-bold px-2 py-1 rounded-md uppercase tracking-wider">Flow 2</span>
-                  <span className="text-sm text-muted-foreground">Header & Cookie Audit</span>
-                </div>
-                {flow2Nodes.map((node) => (
-                  <NodeCard key={node.id} node={node} status={getNodeStatus(node.id)} event={nodeEvents[node.id]} />
-                ))}
-              </div>
-            )}
+                return {
+                  id: node.id,
+                  title: node.name,
+                  status: mappedStatus,
+                  icon: <Icon className="w-3.5 h-3.5" />,
+                  content,
+                  defaultExpanded: mappedStatus === "active" || mappedStatus === "error" || mappedStatus === "success"
+                };
+              });
+              
+              return <AgentPlanning title="Security Scan Execution" steps={planSteps} />;
+            })()}
 
             {/* Done Actions */}
             {scanComplete && (

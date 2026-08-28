@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
@@ -26,14 +26,14 @@ const GithubIcon = (props: React.ComponentProps<'svg'>) => (
 );
 const AuthLogo = () => (
   <svg viewBox="0 0 32 32" fill="none" width={22} height={22}>
-    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
-    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" transform="rotate(90 16 16)"/>
-    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(90 16 16)"/>
-    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" transform="rotate(180 16 16)"/>
-    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(180 16 16)"/>
-    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" transform="rotate(270 16 16)"/>
-    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(270 16 16)"/>
+    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" transform="rotate(90 16 16)" />
+    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(90 16 16)" />
+    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" transform="rotate(180 16 16)" />
+    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(180 16 16)" />
+    <path d="M16 2v10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" transform="rotate(270 16 16)" />
+    <path d="M10 7l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(270 16 16)" />
   </svg>
 );
 
@@ -57,7 +57,7 @@ function FloatingPaths({ position }: { position: number }) {
             strokeOpacity={0.1 + path.id * 0.03}
             initial={{ pathLength: 0.3, opacity: 0.6 }}
             animate={{ pathLength: 1, opacity: [0.3, 0.6, 0.3], pathOffset: [0, 1, 0] }}
-            transition={{ duration: 20 + Math.random() * 10, repeat: Infinity, ease: 'linear' }}
+            transition={{ duration: 20 + (path.id % 10), repeat: Infinity, ease: 'linear' }}
           />
         ))}
       </svg>
@@ -248,14 +248,6 @@ export function AuthPage({ mode = 'login' }: AuthPageProps) {
             <AuthButton onClick={() => { window.location.href = `${API_BASE}/auth/google`; }}>
               <GoogleIcon style={{ width: '15px', height: '15px' }} />
               Continue with Google
-            </AuthButton>
-            <AuthButton>
-              <AppleIcon style={{ width: '15px', height: '15px' }} />
-              Continue with Apple
-            </AuthButton>
-            <AuthButton>
-              <GithubIcon style={{ width: '15px', height: '15px' }} />
-              Continue with GitHub
             </AuthButton>
           </div>
 

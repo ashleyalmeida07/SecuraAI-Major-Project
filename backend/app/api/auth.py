@@ -83,10 +83,14 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 def _google_cfg():
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback")
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    # Re-read from env on every call so changes to .env take effect
+    # without restarting the server (dotenv overrides at process start)
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip().strip('"')
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip().strip('"')
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback").strip().strip('"')
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").strip().strip('"')
     return client_id, client_secret, redirect_uri, frontend_url
 
 
@@ -94,10 +98,11 @@ def _google_cfg():
 def google_login():
     """Redirect browser to Google's consent screen."""
     client_id, _, redirect_uri, _ = _google_cfg()
-    if not client_id or client_id == "your-google-client-id-here":
+    placeholders = {"", "your-google-client-id-here", "your-google-client-id"}
+    if client_id in placeholders:
         raise HTTPException(
             status_code=501,
-            detail="Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
+            detail="Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env and restart the server."
         )
     params = urllib.parse.urlencode({
         "client_id": client_id,
@@ -142,10 +147,10 @@ async def google_callback(code: str, db: Session = Depends(get_db)):
     if not email:
         raise HTTPException(status_code=400, detail="Google did not return an email address")
 
-    # 3. Upsert user (no password for OAuth users)
+    # 3. Upsert user — OAuth users get a sentinel, no real password
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        user = User(email=email, hashed_password=get_password_hash(os.urandom(32).hex()))
+        user = User(email=email, hashed_password="OAUTH_NO_PASSWORD")
         db.add(user)
         db.commit()
         db.refresh(user)

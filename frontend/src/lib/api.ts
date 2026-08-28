@@ -14,7 +14,13 @@ export interface Endpoint {
   method: string;
   endpoint_type: string;
   status_code: number;
-  content_type: string | null;
+  content_type?: string;
+  parameters?: string[];
+  technology?: string[];
+  is_interesting?: boolean;
+  response_size?: number;
+  response_time?: number;
+  form_inputs?: string[];
 }
 
 export interface SurfaceReport {

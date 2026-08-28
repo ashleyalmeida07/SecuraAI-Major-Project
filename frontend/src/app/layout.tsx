@@ -21,7 +21,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body style={{ background: '#0a0a0a', color: '#fff', fontFamily: '"Satoshi", sans-serif' }}>
+      <body style={{ background: '#0a0a0a', color: '#fff', fontFamily: '"Satoshi", sans-serif', margin: 0, padding: 0 }}>
         {children}
       </body>
     </html>

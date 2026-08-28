@@ -11,9 +11,15 @@ class DiscoveredEndpoint(BaseModel):
     """A single discovered endpoint from the crawl."""
     url: str
     method: str = "GET"
-    endpoint_type: str = "unknown"  # auth_page, api, static_asset, form, unknown
+    endpoint_type: str = "unknown"  # auth_page, api, static_asset, form, dashboard, unknown
     status_code: int = 0
     content_type: Optional[str] = None
+    parameters: list[str] = Field(default_factory=list)
+    technology: list[str] = Field(default_factory=list)
+    is_interesting: bool = False
+    response_size: int = 0
+    response_time: float = 0.0
+    form_inputs: list[str] = Field(default_factory=list)
 
 
 class SurfaceReport(BaseModel):

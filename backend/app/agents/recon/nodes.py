@@ -9,7 +9,7 @@ Nodes:
 import httpx
 import json
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -57,7 +57,19 @@ async def crawler_node(state: ReconState) -> dict:
                     "method": "GET",
                     "status_code": response.status_code,
                     "content_type": content_type,
+                    "response_time": round(response.elapsed.total_seconds(), 3),
+                    "response_size": len(response.content),
+                    "technology": [],
+                    "parameters": list(parse_qs(urlparse(url).query).keys()),
+                    "is_interesting": bool(re.search(r'(robots\.txt|sitemap\.xml|/api/docs|\.env|/admin)', url, re.IGNORECASE)),
+                    "form_inputs": []
                 }
+                
+                server_hdr = response.headers.get("server")
+                if server_hdr: endpoint_info["technology"].append(server_hdr)
+                xp_hdr = response.headers.get("x-powered-by")
+                if xp_hdr: endpoint_info["technology"].append(xp_hdr)
+
                 discovered.append(endpoint_info)
 
                 # Only parse HTML pages for more links
@@ -79,11 +91,21 @@ async def crawler_node(state: ReconState) -> dict:
                     method = form.get("method", "GET").upper()
                     form_url = urljoin(url, action) if action else url
                     if urlparse(form_url).netloc == base_domain:
+                        inputs = []
+                        for inp in form.find_all(["input", "select", "textarea"]):
+                            name = inp.get("name") or inp.get("id")
+                            if name: inputs.append(name)
                         discovered.append({
                             "url": form_url,
                             "method": method,
                             "status_code": 0,
                             "content_type": "form",
+                            "response_time": 0.0,
+                            "response_size": 0,
+                            "technology": [],
+                            "parameters": [],
+                            "is_interesting": False,
+                            "form_inputs": inputs
                         })
 
                 # ── Extract API-like paths from scripts ──
@@ -101,6 +123,12 @@ async def crawler_node(state: ReconState) -> dict:
                                     "method": "GET",
                                     "status_code": 0,
                                     "content_type": "api_reference",
+                                    "response_time": 0.0,
+                                    "response_size": 0,
+                                    "technology": [],
+                                    "parameters": [],
+                                    "is_interesting": bool(re.search(r'(robots\.txt|sitemap\.xml|/api/docs|\.env|/admin)', api_url, re.IGNORECASE)),
+                                    "form_inputs": []
                                 })
 
             except httpx.HTTPError as e:
@@ -186,6 +214,19 @@ JSON array:"""
         classified = [
             {**ep, "endpoint_type": "unknown"} for ep in discovered
         ]
+
+    # ── Fallback Rules ──
+    for ep in classified:
+        if ep.get("endpoint_type") == "unknown":
+            path = urlparse(ep["url"]).path.lower()
+            if path.startswith("/api/"):
+                ep["endpoint_type"] = "api"
+            elif any(path.endswith(ext) for ext in [".js", ".css", ".png", ".jpg", ".svg", ".ico"]):
+                ep["endpoint_type"] = "static_asset"
+            elif "admin" in path or "dashboard" in path:
+                ep["endpoint_type"] = "dashboard"
+            elif "login" in path or "auth" in path or "signup" in path:
+                ep["endpoint_type"] = "auth_page"
 
     return {
         "classified_endpoints": classified,
