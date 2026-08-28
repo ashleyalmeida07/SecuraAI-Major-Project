@@ -8,9 +8,9 @@ import {
   Bug, Brain, Map, Radio, ClipboardCheck, Scale,
   Globe, ShieldCheck, Search, Loader2, CheckCircle2, XCircle,
   Activity, ArrowRight, Link2, Tag, FileText, AlertTriangle,
-  Check, CircleCheck, ExternalLink
+  Check, CircleCheck, ExternalLink, Zap
 } from "lucide-react";
-import { scanFullStream, scanReconStream } from "@/lib/api";
+import { scanFullStream, scanReconStream, scanInjectionStream } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +28,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { AgentPlanning, PlanStep } from "@/components/ui/ai-planning";
 
-type ScanMode = "full" | "recon";
+type ScanMode = "full" | "recon" | "injection";
 type NodeStatus = "idle" | "active" | "done" | "error";
 
 interface AgentNode {
@@ -68,6 +68,30 @@ const ALL_NODES: AgentNode[] = [
   { id: "severity_scorer", icon: Scale, name: "Severity Scorer Node", tool: "LLM (AI Model)",
     description: "AI assigns severity ratings and writes executive summary",
     activeDesc: "AI scoring severities and writing summary...", flow: 2 },
+];
+
+const INJECTION_NODES: AgentNode[] = [
+  { id: "crawler", icon: Bug, name: "Crawler Node", tool: "httpx + BeautifulSoup",
+    description: "Crawls pages, extracts links, forms and API paths",
+    activeDesc: "Crawling target URL and following all links...", flow: 1 },
+  { id: "classifier", icon: Brain, name: "Classifier Node", tool: "LLM (AI Model)",
+    description: "Classifies each endpoint by type using AI",
+    activeDesc: "Sending endpoints to AI for classification...", flow: 1 },
+  { id: "surface_report", icon: Map, name: "Surface Report Node", tool: "Pure Logic",
+    description: "Assembles the structured attack-surface report",
+    activeDesc: "Building attack surface map...", flow: 1 },
+  { id: "payload_generator", icon: Zap, name: "Payload Generator", tool: "Payload Library",
+    description: "Generates SQLi, XSS, and injection payloads for each endpoint",
+    activeDesc: "Generating attack payloads for discovered endpoints...", flow: 2 },
+  { id: "injector", icon: Activity, name: "Injector Node", tool: "httpx",
+    description: "Sends baseline + payload requests and records differences",
+    activeDesc: "Sending baseline and injected requests...", flow: 2 },
+  { id: "response_analyzer", icon: Brain, name: "Response Analyzer", tool: "LLM (AI Model)",
+    description: "AI compares responses to confirm or discard injection flaws",
+    activeDesc: "LLM analyzing response differences...", flow: 2 },
+  { id: "report_builder", icon: FileText, name: "Report Builder", tool: "LLM + Logic",
+    description: "Assembles the final injection report with recommendations",
+    activeDesc: "Building injection report with executive summary...", flow: 2 },
 ];
 
 const RECON_NODES = ALL_NODES.filter((n) => n.flow === 1);
@@ -277,6 +301,106 @@ function parseNodeEvent(nodeName: string, state: any) {
     case 'header_fetcher': return parseHeaderFetcherSummary(state);
     case 'rule_checker': return parseRuleCheckerSummary(state);
     case 'severity_scorer': return parseSeverityScorerSummary(state);
+    case 'payload_generator': {
+      const cases = state?.test_cases || [];
+      return {
+        summary: `Generated ${cases.length} test payload${cases.length !== 1 ? 's' : ''}`,
+        details: (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">Attack payloads generated for injection testing:</p>
+            <div className="flex flex-wrap gap-2">
+              {['sqli', 'xss', 'command_injection', 'path_traversal'].map(t => {
+                const c = cases.filter((tc: any) => tc.injection_type === t).length;
+                return c > 0 ? (
+                  <div key={t} className="flex items-center gap-1 text-xs bg-muted rounded px-2 py-1">
+                    <Zap className="h-3 w-3 text-yellow-400" />
+                    <span className="font-medium uppercase">{t.replace('_', ' ')}</span>
+                    <span className="text-muted-foreground">{c}</span>
+                  </div>
+                ) : null;
+              })}
+            </div>
+          </div>
+        ),
+        handoff: `${cases.length} payloads \u2192 Injector Node`
+      };
+    }
+    case 'injector': {
+      const results = state?.injection_results || [];
+      const anomalies = results.filter((r: any) => r.payload_reflected || r.sql_error_found || r.status_diff).length;
+      return {
+        summary: `Tested ${results.length} payload${results.length !== 1 ? 's' : ''} — ${anomalies} anomal${anomalies !== 1 ? 'ies' : 'y'} detected`,
+        details: (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">Baseline vs payload response comparison:</p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-2 bg-muted rounded text-xs text-center">
+                <div className="text-lg font-bold">{results.length}</div>
+                <div className="text-muted-foreground">Tested</div>
+              </div>
+              <div className="p-2 bg-yellow-500/10 rounded text-xs text-center">
+                <div className="text-lg font-bold text-yellow-400">{anomalies}</div>
+                <div className="text-muted-foreground">Anomalies</div>
+              </div>
+              <div className="p-2 bg-green-500/10 rounded text-xs text-center">
+                <div className="text-lg font-bold text-green-400">{results.length - anomalies}</div>
+                <div className="text-muted-foreground">Clean</div>
+              </div>
+            </div>
+          </div>
+        ),
+        handoff: `${anomalies} anomalies \u2192 Response Analyzer (AI)`
+      };
+    }
+    case 'response_analyzer': {
+      const confirmed = state?.confirmed_findings || [];
+      const discarded = state?.discarded || [];
+      return {
+        summary: `AI confirmed ${confirmed.length} finding${confirmed.length !== 1 ? 's' : ''}, discarded ${discarded.length}`,
+        details: (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">LLM analysis results:</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-2 bg-red-500/10 rounded text-xs text-center">
+                <div className="text-lg font-bold text-red-400">{confirmed.length}</div>
+                <div className="text-muted-foreground">Confirmed</div>
+              </div>
+              <div className="p-2 bg-muted rounded text-xs text-center">
+                <div className="text-lg font-bold text-muted-foreground">{discarded.length}</div>
+                <div className="text-muted-foreground">Discarded</div>
+              </div>
+            </div>
+            {confirmed.slice(0, 3).map((f: any, i: number) => (
+              <div key={i} className="text-xs border border-border/50 rounded p-2">
+                <span className="font-medium text-red-400">[{f.severity?.toUpperCase()}]</span>
+                <span className="text-muted-foreground ml-1">{f.injection_type} on {f.parameter}</span>
+              </div>
+            ))}
+          </div>
+        ),
+        handoff: `${confirmed.length} confirmed findings \u2192 Report Builder`
+      };
+    }
+    case 'report_builder': {
+      const report = state?.injection_report || {};
+      return {
+        summary: `Built injection report: ${report.total_confirmed || 0} vulnerabilities found`,
+        details: (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">Injection testing complete:</p>
+            {report.summary && (
+              <div className="p-3 bg-muted/50 border border-border/50 rounded text-xs text-muted-foreground leading-relaxed">
+                {report.summary}
+              </div>
+            )}
+            <div className="mt-1 p-2 bg-green-500/10 border border-green-500/30 rounded text-xs text-green-400">
+              Injection report ready. View Reports for complete results.
+            </div>
+          </div>
+        ),
+        handoff: `Final injection report generated`
+      };
+    }
     default: return {
       summary: `${nodeName} node completed`,
       details: <p className="text-xs text-muted-foreground">Node processing complete.</p>,
@@ -362,6 +486,7 @@ export default function ScanPage() {
 
   const [url, setUrl] = useState("");
   const [maxDepth, setMaxDepth] = useState(2);
+  const [maxPages, setMaxPages] = useState(15);
   const [scanMode, setScanMode] = useState<ScanMode>("full");
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -371,7 +496,7 @@ export default function ScanPage() {
   const [scanComplete, setScanComplete] = useState(false);
   const [currentActivity, setCurrentActivity] = useState<string>("");
 
-  const activeNodes = scanMode === "recon" ? RECON_NODES : ALL_FLOW_NODES;
+  const activeNodes = scanMode === "recon" ? RECON_NODES : scanMode === "injection" ? INJECTION_NODES : ALL_FLOW_NODES;
   const flow1Nodes = activeNodes.filter((n) => n.flow === 1);
   const flow2Nodes = activeNodes.filter((n) => n.flow === 2);
   const getNodeStatus = (id: string): NodeStatus => nodeStatuses[id] || "idle";
@@ -439,9 +564,11 @@ export default function ScanPage() {
       };
 
       if (scanMode === "recon") {
-        await scanReconStream({ url, max_depth: maxDepth }, handleEvent);
+        await scanReconStream({ url, max_depth: maxDepth, max_pages: maxPages }, handleEvent);
+      } else if (scanMode === "injection") {
+        await scanInjectionStream({ url, max_depth: maxDepth, max_pages: maxPages }, handleEvent);
       } else {
-        await scanFullStream({ url, max_depth: maxDepth }, handleEvent);
+        await scanFullStream({ url, max_depth: maxDepth, max_pages: maxPages }, handleEvent);
       }
 
       const allDone: Record<string, NodeStatus> = {};
@@ -454,10 +581,16 @@ export default function ScanPage() {
       // Reconstruct final payload and save to history
       const finalSurface = nodeStatesRef.current["surface_report"]?.surface_report || {};
       const finalAudit = scanMode === "full" ? (nodeStatesRef.current["severity_scorer"]?.audit_report || {}) : null;
+      const finalInjection = scanMode === "injection" ? (nodeStatesRef.current["report_builder"]?.injection_report || {}) : null;
       
-      const scanData = scanMode === "recon"
-        ? { status: "success", surface_report: finalSurface, errors: [] }
-        : { status: "success", surface_report: finalSurface, header_audit_report: finalAudit, errors: [] };
+      let scanData: any;
+      if (scanMode === "recon") {
+        scanData = { status: "success", surface_report: finalSurface, errors: [] };
+      } else if (scanMode === "injection") {
+        scanData = { status: "success", surface_report: finalSurface, injection_report: finalInjection, errors: [] };
+      } else {
+        scanData = { status: "success", surface_report: finalSurface, header_audit_report: finalAudit, errors: [] };
+      }
         
       const newScanRecord = {
         id: crypto.randomUUID(),
@@ -524,28 +657,51 @@ export default function ScanPage() {
                 )}
               </div>
 
-              <div>
-                <Label htmlFor="max-depth" className="font-medium">
-                  Crawl Depth
-                </Label>
-                <Select
-                  value={String(maxDepth)}
-                  onValueChange={(val) => setMaxDepth(Number(val))}
-                  disabled={scanning}
-                >
-                  <SelectTrigger id="max-depth" className="mt-2 h-11 w-full bg-background focus:ring-primary">
-                    <SelectValue placeholder="Select depth" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1 — Surface only</SelectItem>
-                    <SelectItem value="2">2 — One level deep</SelectItem>
-                    <SelectItem value="3">3 — Deep crawl</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  For faster results, choose a lower crawl depth.
-                </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="max-depth" className="font-medium">
+                    Crawl Depth
+                  </Label>
+                  <Select
+                    value={String(maxDepth)}
+                    onValueChange={(val) => setMaxDepth(Number(val))}
+                    disabled={scanning}
+                  >
+                    <SelectTrigger id="max-depth" className="mt-2 h-11 w-full bg-background focus:ring-primary">
+                      <SelectValue placeholder="Select depth" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 — Surface only</SelectItem>
+                      <SelectItem value="2">2 — One level deep</SelectItem>
+                      <SelectItem value="3">3 — Deep crawl</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="max-pages" className="font-medium">
+                    Max Pages Limit
+                  </Label>
+                  <Select
+                    value={String(maxPages)}
+                    onValueChange={(val) => setMaxPages(Number(val))}
+                    disabled={scanning}
+                  >
+                    <SelectTrigger id="max-pages" className="mt-2 h-11 w-full bg-background focus:ring-primary">
+                      <SelectValue placeholder="Select limit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 Pages (~15s)</SelectItem>
+                      <SelectItem value="15">15 Pages (~45s)</SelectItem>
+                      <SelectItem value="30">30 Pages (~1.5m)</SelectItem>
+                      <SelectItem value="50">50 Pages (~2.5m)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                For faster results, choose a lower crawl depth and page limit.
+              </p>
             </div>
 
             <h4 className="mt-12 font-medium">
@@ -637,6 +793,49 @@ export default function ScanPage() {
                 </div>
                 <div className="flex items-center justify-between rounded-b-md border-t border-border bg-muted px-6 py-3">
                   <span className="text-sm text-primary">Comprehensive audit</span>
+                </div>
+              </label>
+
+              <label
+                htmlFor="injection"
+                className={cn(
+                  "relative block cursor-pointer rounded-md border bg-background transition",
+                  scanMode === "injection"
+                    ? "border-primary/20 ring-2 ring-primary/20"
+                    : "border-border"
+                )}
+              >
+                <div className="flex items-start space-x-4 px-6 py-4">
+                  <div className="mt-1 flex h-4 w-4 shrink-0 items-center justify-center">
+                    <RadioGroupItem value="injection" id="injection" />
+                  </div>
+                  <div className="w-full">
+                    <div className="leading-6 flex items-center">
+                      <span className="font-semibold text-foreground">
+                        Injection Test
+                      </span>
+                      <Badge variant="secondary" className="ml-2 bg-red-500/10 text-red-400 border-red-500/20">
+                        active testing
+                      </Badge>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        Recon + endpoint discovery
+                      </li>
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        SQLi, XSS, Command Injection, Path Traversal
+                      </li>
+                      <li className="flex items-center gap-2 text-sm">
+                        <Check className="h-4 w-4 text-muted-foreground" />
+                        AI-confirmed findings with remediation
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-b-md border-t border-border bg-muted px-6 py-3">
+                  <span className="text-sm text-primary">Active vulnerability testing</span>
                 </div>
               </label>
             </RadioGroup>

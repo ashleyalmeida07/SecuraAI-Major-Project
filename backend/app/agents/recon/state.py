@@ -10,6 +10,7 @@ class ReconState(TypedDict):
     Keys:
         target_url:             The URL to crawl (input).
         max_depth:              How many link-levels deep to follow (input).
+        max_pages:              Maximum number of pages to crawl (input).
         discovered_urls:        Raw list of URLs + metadata found by the crawler.
         classified_endpoints:   Endpoints after LLM classification.
         surface_report:         The final structured attack-surface report.
@@ -17,6 +18,7 @@ class ReconState(TypedDict):
     """
     target_url: str
     max_depth: int
+    max_pages: int
     discovered_urls: list[dict]
     classified_endpoints: list[dict]
     surface_report: dict

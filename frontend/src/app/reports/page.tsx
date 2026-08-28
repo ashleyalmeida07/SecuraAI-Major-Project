@@ -10,7 +10,7 @@ import {
   Key, Zap, FileCode, FormInput, LayoutDashboard, HelpCircle,
   Shield, Map, Lock, Globe, Clock, ChevronDown, ChevronRight, FileText, Check
 } from "lucide-react";
-import type { FullScanResponse, ReconResponse, Endpoint, HeaderFinding } from "@/lib/api";
+import type { FullScanResponse, ReconResponse, Endpoint, HeaderFinding, InjectionReport, InjectionFinding } from "@/lib/api";
 import styles from "../dashboard/dashboard.module.css";
 
 type ScanData = FullScanResponse | ReconResponse;
@@ -43,7 +43,7 @@ export default function ReportsPage() {
   const [scans, setScans] = useState<any[]>([]);
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<"surface" | "headers">("surface");
+  const [activeTab, setActiveTab] = useState<"surface" | "headers" | "injection">("surface");
   const [expandedFinding, setExpandedFinding] = useState<number | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [mounted, setMounted] = useState(false);
@@ -98,6 +98,9 @@ export default function ReportsPage() {
   const surfaceReport = scanData.surface_report;
   const auditReport = isFullScan(scanData) ? scanData.header_audit_report : null;
   const scanErrors = scanData.errors || [];
+
+  const injectionReport: InjectionReport | null = scanData.injection_report || null;
+  const injectionFindings: InjectionFinding[] = injectionReport?.findings || [];
 
   const endpoints: Endpoint[] = surfaceReport?.endpoints || [];
   const findings: HeaderFinding[] = auditReport?.findings || [];
@@ -158,7 +161,7 @@ export default function ReportsPage() {
         <div className={styles.dashHeader}>
           <div className={styles.dashHeaderLeft}>
             <div className={styles.dashBadge}>
-              {scanMode === "full" ? "Full Scan" : "Recon Only"}
+              {scanMode === "full" ? "Full Scan" : scanMode === "injection" ? "Injection Test" : "Recon Only"}
             </div>
             <h1 className={styles.dashTitle}>Report Overview</h1>
             <div className={styles.dashMeta}>
@@ -250,6 +253,17 @@ export default function ReportsPage() {
                 {auditReport.total_findings}
               </span>
             </button>
+            {injectionReport && (
+              <button
+                className={`${styles.tab} ${activeTab === "injection" ? styles.tabActive : ""}`}
+                onClick={() => setActiveTab("injection")}
+              >
+                <Zap size={16} className="mr-2 inline" /> Injection Test
+                <span className={`${styles.tabCount} ${injectionReport.total_confirmed > 0 ? styles.tabCountAlert : ""}`}>
+                  {injectionReport.total_confirmed}
+                </span>
+              </button>
+            )}
           </div>
         )}
 
@@ -428,6 +442,134 @@ export default function ReportsPage() {
                             </code>
                           </div>
                         </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ── Injection Tab ── */}
+        {injectionReport && activeTab === "injection" && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}><Zap size={20} className="mr-2 inline" /> Injection Test Results</h2>
+
+            {/* Summary cards */}
+            <div className={styles.statsRow + " mb-6"}>
+              <div className={styles.statCard}>
+                <div className={styles.statValue}>{injectionReport.total_tested}</div>
+                <div className={styles.statLabel}>Endpoints Tested</div>
+              </div>
+              <div className={`${styles.statCard} ${styles.statCard_critical}`}>
+                <div className={`${styles.statValue}`} style={{ WebkitTextFillColor: '#ef4444' }}>{injectionReport.total_confirmed}</div>
+                <div className={styles.statLabel}>Confirmed Vulnerabilities</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statValue}>{injectionReport.total_discarded}</div>
+                <div className={styles.statLabel}>Discarded (False Positives)</div>
+              </div>
+            </div>
+
+            {/* AI Summary */}
+            {injectionReport.summary && (
+              <div className={styles.summaryCard + " mb-6"}>
+                <div className={styles.summaryCardHeader}>
+                  <span className={styles.summaryTitle}>AI Executive Summary</span>
+                </div>
+                <p className={styles.summaryText}>{injectionReport.summary}</p>
+              </div>
+            )}
+
+            {/* Type breakdown */}
+            {Object.keys(injectionReport.type_breakdown || {}).length > 0 && (
+              <div className={styles.typeBreakdown + " mb-6"}>
+                {Object.entries(injectionReport.type_breakdown).map(([type, count]) => (
+                  <div key={type} className={styles.typeCard}>
+                    <span className={styles.typeIcon}><Zap size={14} /></span>
+                    <span className={styles.typeCount}>{count as number}</span>
+                    <span className={styles.typeName}>{type.replace(/_/g, ' ').toUpperCase()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Findings list */}
+            {injectionFindings.length === 0 ? (
+              <div className={styles.noFindings}>
+                <Check className="h-5 w-5 text-green-500 mr-2 inline" /> No injection vulnerabilities confirmed. Tested endpoints appear resilient.
+              </div>
+            ) : (
+              <div className={styles.findingsList}>
+                {injectionFindings.map((finding, i) => (
+                  <div
+                    key={i}
+                    className={`${styles.findingCard} ${styles[`finding_${finding.severity}`]}`}
+                  >
+                    <button
+                      className={styles.findingCardHeader}
+                      onClick={() =>
+                        setExpandedFinding(expandedFinding === i ? null : i)
+                      }
+                    >
+                      <div className={styles.findingLeft}>
+                        <span
+                          className={`${styles.severityBadge} ${styles[`severity_${finding.severity}`]}`}
+                        >
+                          {SEVERITY_ICONS[finding.severity]}{" "}
+                          {finding.severity.toUpperCase()}
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium uppercase">
+                          {finding.injection_type.replace(/_/g, ' ')}
+                        </span>
+                        <code className={styles.headerName}>{finding.parameter}</code>
+                      </div>
+                      <span className={styles.expandIcon}>
+                        {expandedFinding === i ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </span>
+                    </button>
+
+                    {expandedFinding === i && (
+                      <div className={styles.findingBody}>
+                        <p className={styles.findingDesc}>{finding.description}</p>
+                        <div className={styles.findingMeta}>
+                          <div className={styles.findingMetaItem}>
+                            <span className={styles.findingMetaLabel}>URL</span>
+                            <a
+                              href={finding.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.findingMetaValue}
+                            >
+                              {finding.url}
+                            </a>
+                          </div>
+                          <div className={styles.findingMetaItem}>
+                            <span className={styles.findingMetaLabel}>Parameter</span>
+                            <code className={styles.findingMetaCode}>{finding.parameter}</code>
+                          </div>
+                          <div className={styles.findingMetaItem}>
+                            <span className={styles.findingMetaLabel}>Payload</span>
+                            <code className={styles.findingMetaCode}>{finding.payload_name}</code>
+                          </div>
+                        </div>
+
+                        {/* Evidence */}
+                        {finding.evidence && (
+                          <div className="mt-3 p-3 rounded-lg border" style={{ background: 'rgba(239,68,68,0.05)', borderColor: 'rgba(239,68,68,0.2)' }}>
+                            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'rgba(239,68,68,0.7)' }}>Evidence</div>
+                            <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>{finding.evidence}</p>
+                          </div>
+                        )}
+
+                        {/* Recommendation */}
+                        {finding.recommendation && (
+                          <div className="mt-3 p-3 rounded-lg border" style={{ background: 'rgba(34,197,94,0.05)', borderColor: 'rgba(34,197,94,0.2)' }}>
+                            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'rgba(34,197,94,0.7)' }}>Recommendation</div>
+                            <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.7)' }}>{finding.recommendation}</p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

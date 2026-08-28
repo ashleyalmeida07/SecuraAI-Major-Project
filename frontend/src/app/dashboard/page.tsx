@@ -6,7 +6,7 @@ import Link from "next/link";
 import { isAuthenticated } from "@/utils/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
-  Shield, Globe, Clock, Activity, ArrowRight
+  Shield, Globe, Clock, Activity, ArrowRight, Trash2
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -26,6 +26,12 @@ export default function DashboardPage() {
       setScans(JSON.parse(historyRaw));
     }
   }, [router]);
+
+  const deleteScan = (id: string) => {
+    const updatedScans = scans.filter(s => s.id !== id);
+    setScans(updatedScans);
+    localStorage.setItem("authtrack_scan_history", JSON.stringify(updatedScans));
+  };
 
   if (!mounted) return null;
 
@@ -88,6 +94,13 @@ export default function DashboardPage() {
                     >
                       View Report <ArrowRight className="h-4 w-4" />
                     </Link>
+                    <button
+                      onClick={() => deleteScan(scan.id)}
+                      className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
+                      title="Delete Scan"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
                   </div>
                 </div>
               );

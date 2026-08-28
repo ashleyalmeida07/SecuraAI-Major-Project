@@ -10,10 +10,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 import json
 import asyncio
-from app.models.schemas import ScanRequest, HeaderScanRequest, StaticScanRequest
+from app.models.schemas import ScanRequest, HeaderScanRequest, StaticScanRequest, InjectionScanRequest
 from app.agents.recon.graph import recon_graph
 from app.agents.header_audit.graph import header_audit_graph
 from app.agents.static_analysis.graph import static_analysis_graph
+from app.agents.injection.graph import injection_graph
 from app.db.session import SessionLocal
 from app.db.models import Scan, FlowRun
 
@@ -61,6 +62,7 @@ async def run_header_audit(request: HeaderScanRequest):
             recon_result = await recon_graph.ainvoke({
                 "target_url": request.url,
                 "max_depth": 2,
+                "max_pages": 15,
                 "discovered_urls": [],
                 "classified_endpoints": [],
                 "surface_report": {},
@@ -276,6 +278,125 @@ async def stream_full_scan(request: ScanRequest):
                     await asyncio.sleep(0.1)
 
             yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!'})}\n\n"
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@scan_router.post("/injection")
+async def run_injection_scan(request: InjectionScanRequest):
+    """Run Flow 3: Injection Testing.
+
+    Takes endpoints from a prior Recon scan (or runs Recon first),
+    then tests each endpoint+parameter for injection vulnerabilities.
+    """
+    try:
+        endpoints = request.endpoints
+
+        # If no endpoints provided, run recon first
+        if not endpoints:
+            recon_result = await recon_graph.ainvoke({
+                "target_url": request.url,
+                "max_depth": request.max_depth,
+                "discovered_urls": [],
+                "classified_endpoints": [],
+                "surface_report": {},
+                "errors": [],
+            })
+            endpoints = recon_result.get("classified_endpoints", [])
+
+        # Filter to only injectable endpoints (skip static assets)
+        injectable = [ep for ep in endpoints if ep.get("endpoint_type") not in ("static_asset",)]
+
+        result = await injection_graph.ainvoke({
+            "target_url": request.url,
+            "endpoints": injectable,
+            "current_index": 0,
+            "test_cases": [],
+            "injection_results": [],
+            "confirmed_findings": [],
+            "discarded": [],
+            "injection_report": {},
+            "errors": [],
+        })
+
+        return {
+            "status": "success",
+            "injection_report": result.get("injection_report", {}),
+            "errors": result.get("errors", []),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Injection scan failed: {str(e)}")
+
+
+@scan_router.post("/stream/injection")
+async def stream_injection_scan(request: InjectionScanRequest):
+    """Stream Flow 3: Injection Testing using SSE.
+    
+    Optionally runs Recon first if no endpoints are provided,
+    then streams injection testing node-by-node.
+    """
+
+    async def event_generator():
+        try:
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Injection Testing Flow...'})}\n\n"
+
+            endpoints = request.endpoints
+
+            # If no endpoints, run recon first
+            if not endpoints:
+                yield f"data: {json.dumps({'event': 'start', 'message': 'No endpoints provided. Running Recon first...'})}\n\n"
+
+                recon_final_state = None
+                async for chunk in recon_graph.astream({
+                    "target_url": request.url,
+                    "max_depth": request.max_depth,
+                    "discovered_urls": [],
+                    "classified_endpoints": [],
+                    "surface_report": {},
+                    "errors": [],
+                }):
+                    for node_name, state_update in chunk.items():
+                        event_data = {
+                            "event": "node_update",
+                            "node": node_name,
+                            "state": state_update
+                        }
+                        yield f"data: {json.dumps(event_data)}\n\n"
+                        recon_final_state = state_update
+                        await asyncio.sleep(0.1)
+
+                endpoints = recon_final_state.get("classified_endpoints", []) if recon_final_state else []
+                yield f"data: {json.dumps({'event': 'handoff', 'message': f'Recon found {len(endpoints)} endpoints. Starting injection tests...'})}\n\n"
+
+            # Filter to injectable endpoints
+            injectable = [ep for ep in endpoints if ep.get("endpoint_type") not in ("static_asset",)]
+
+            # Stream the injection graph
+            async for chunk in injection_graph.astream({
+                "target_url": request.url,
+                "endpoints": injectable,
+                "current_index": 0,
+                "test_cases": [],
+                "injection_results": [],
+                "confirmed_findings": [],
+                "discarded": [],
+                "injection_report": {},
+                "errors": [],
+            }):
+                for node_name, state_update in chunk.items():
+                    event_data = {
+                        "event": "node_update",
+                        "node": node_name,
+                        "state": state_update
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    await asyncio.sleep(0.1)
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
 

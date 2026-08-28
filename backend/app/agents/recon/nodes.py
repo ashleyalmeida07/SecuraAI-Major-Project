@@ -6,12 +6,13 @@ Nodes:
     surface_report_node   — Assembles the final structured attack-surface report.
 """
 
-import httpx
 import json
 import re
+import time
 from urllib.parse import urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from datetime import datetime
+from playwright.sync_api import sync_playwright
 
 from app.agents.recon.state import ReconState
 from app.core.llm import get_llm
@@ -19,14 +20,15 @@ from app.core.llm import get_llm
 
 # ── Node 1: Crawler ──────────────────────────────────────────────────────────
 
-async def crawler_node(state: ReconState) -> dict:
+def crawler_node(state: ReconState) -> dict:
     """Crawl the target URL and discover linked pages, forms, and API endpoints.
 
-    Uses httpx + BeautifulSoup.  Follows links up to `max_depth` levels.
-    Only visits pages on the same domain as the target.
+    Uses Playwright to execute JavaScript and BeautifulSoup to extract links.
+    Follows links up to `max_depth` levels. Only visits pages on the same domain.
     """
     target_url = state["target_url"].rstrip("/")
     max_depth = state.get("max_depth", 2)
+    max_pages = state.get("max_pages", 15)
     parsed_target = urlparse(target_url)
     base_domain = parsed_target.netloc
 
@@ -35,13 +37,19 @@ async def crawler_node(state: ReconState) -> dict:
     queue: list[tuple[str, int]] = [(target_url, 0)]
     errors: list[str] = []
 
-    async with httpx.AsyncClient(
-        timeout=15.0,
-        follow_redirects=True,
-        verify=False,          # allow self-signed certs on dev targets
-        headers={"User-Agent": "AuthTrack-Crawler/0.1"},
-    ) as client:
-        while queue:
+    with sync_playwright() as p:
+        # Launch browser headlessly
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            ignore_https_errors=True, 
+            user_agent="AuthTrack-Crawler/0.1"
+        )
+        page = context.new_page()
+        
+        # Abort images/fonts/media to speed up the crawl
+        page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font"] else route.continue_())
+
+        while queue and len(visited) < max_pages:
             url, depth = queue.pop(0)
 
             if url in visited or depth > max_depth:
@@ -49,34 +57,57 @@ async def crawler_node(state: ReconState) -> dict:
             visited.add(url)
 
             try:
-                response = await client.get(url)
-                content_type = response.headers.get("content-type", "")
+                start_time = time.time()
+                # Wait for DOM content to load, then give JS 3 seconds to fetch APIs and render
+                response = page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(3000)
+                
+                if not response:
+                    continue
+
+                response_time = round(time.time() - start_time, 3)
+                
+                headers = response.headers
+                content_type = headers.get("content-type", "")
+                status_code = response.status
+                
+                try:
+                    body = response.body()
+                    response_size = len(body)
+                except Exception:
+                    response_size = 0
 
                 endpoint_info = {
                     "url": url,
                     "method": "GET",
-                    "status_code": response.status_code,
+                    "status_code": status_code,
                     "content_type": content_type,
-                    "response_time": round(response.elapsed.total_seconds(), 3),
-                    "response_size": len(response.content),
+                    "response_time": response_time,
+                    "response_size": response_size,
                     "technology": [],
                     "parameters": list(parse_qs(urlparse(url).query).keys()),
                     "is_interesting": bool(re.search(r'(robots\.txt|sitemap\.xml|/api/docs|\.env|/admin)', url, re.IGNORECASE)),
                     "form_inputs": []
                 }
                 
-                server_hdr = response.headers.get("server")
+                server_hdr = headers.get("server")
                 if server_hdr: endpoint_info["technology"].append(server_hdr)
-                xp_hdr = response.headers.get("x-powered-by")
+                xp_hdr = headers.get("x-powered-by")
                 if xp_hdr: endpoint_info["technology"].append(xp_hdr)
 
                 discovered.append(endpoint_info)
 
+                # Get the final rendered HTML
+                try:
+                    html_content = page.content()
+                except Exception:
+                    html_content = ""
+
                 # Only parse HTML pages for more links
-                if "text/html" not in content_type:
+                if "text/html" not in content_type and not html_content.strip().lower().startswith("<html"):
                     continue
 
-                soup = BeautifulSoup(response.text, "html.parser")
+                soup = BeautifulSoup(html_content, "html.parser")
 
                 # ── Extract <a> links ──
                 for anchor in soup.find_all("a", href=True):
@@ -131,10 +162,10 @@ async def crawler_node(state: ReconState) -> dict:
                                     "form_inputs": []
                                 })
 
-            except httpx.HTTPError as e:
-                errors.append(f"Failed to crawl {url}: {str(e)}")
             except Exception as e:
                 errors.append(f"Unexpected error crawling {url}: {str(e)}")
+
+        browser.close()
 
     # Deduplicate by URL+method
     seen = set()

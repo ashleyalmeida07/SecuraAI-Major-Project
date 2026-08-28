@@ -17,6 +17,7 @@ dependencies = [
     "langgraph>=1.2.11",
     "mcp>=2.1.1",
     "passlib[bcrypt]>=1.7.4",
+    "playwright>=1.62.0",
     "psycopg2-binary>=2.9.12",
     "pydantic>=2.13.4",
     "pyjwt>=2.13.0",

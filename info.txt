@@ -45,3 +45,65 @@ Static Analysis (static_analysis)
 
 Purpose: Uses Semgrep for code pattern matching and integrates with our Upstash Vector Database (RAG). It matches code against known vulnerability patterns and uses an LLM to triage findings and generate fixes.
 Output: Triaged security findings with suggested code fixes.
+
+
+||||||||||||||||||||||||||
+
+1.Recon Only: The crawler gathers all the raw URLs, forms, and technical details. Then,
+ it sends that raw list to the language model. The language model acts as the Classifier—it 
+ looks at the context of each URL and figures out exactly what it is (e.g., "Oh, this is an 
+ auth_page, and this one is a static_asset"). It builds the Attack Surface map based on those 
+ decisions.
+
+2.Full Scan: This does the Recon step above, but then goes further. It checks the security 
+headers for all the discovered endpoints. If it finds missing security headers, it sends those
+ findings to the language model. The language model acts as the Severity Scorer—it looks at the
+  context of the vulnerability (e.g., "A missing security header on a static image is a Low risk
+  , but missing it on the auth_page is a Critical risk"). It assigns the final score and writes 
+  the executive summary for the report.
+
+3.
+Injection Testing (Flow 3) is the most aggressive and advanced feature of this security
+ scanner. While the "Recon" and "Header Audit" scans just look at the surface of a website 
+ and read its configuration, the Injection Test actively attacks the website to see if it can
+  break in.
+
+Here is exactly what happens during an Injection Test in this app:
+
+1. Payload Generator
+After the Crawler maps out all the endpoints and finds where data can be submitted (like search
+ bars, login forms, or URL parameters like ?id=1), this node generates a list of malicious 
+ "payloads" to try. These payloads simulate the four most common web attacks:
+
+SQL Injection (SQLi): e.g., ' OR 1=1 -- (Trying to trick the database into giving up private 
+
+data)
+Cross-Site Scripting (XSS): e.g., <script>alert(1)</script> (Trying to inject malicious 
+JavaScript)
+Command Injection: e.g., ; cat /etc/passwd (Trying to run terminal commands on the server)
+Path Traversal: e.g., ../../../../etc/passwd (Trying to access hidden files)
+
+2. Injector Node
+This node acts as the automated hacker. It fires off a "baseline" request
+ (a normal, safe request) to see how the server usually responds. Then, it fires
+  off hundreds of requests using the malicious payloads generated in the previous step.
+   It carefully records the differences in how the server responds (e.g., did the page crash? 
+   did it take 5 seconds longer to load? did it spit out a database error?).
+
+3. Response Analyzer (AI)
+This is where the LLM shines. It looks at the differences between the normal response and the 
+attacked response. Instead of using dumb keyword matching, the AI reads the HTML context to 
+determine if an attack actually succeeded.
+
+If the server threw a 500 error and leaked a MySQL traceback, the AI flags it as a Confirmed 
+SQL Injection.
+If the server safely blocked the attack or escaped the input, the AI marks it as a False 
+Positive / Discarded.
+
+4. Report Builder
+Finally, the AI writes up an executive summary detailing exactly what it tested, what 
+vulnerabilities were confirmed, and provides specific recommendations on how to patch
+ the vulnerable code.
+
+In short: The Injection Test unleashes a swarm of AI-generated attacks against the website's
+ forms and parameters to see if its backend databases and logic can be compromised!

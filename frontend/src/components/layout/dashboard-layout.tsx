@@ -5,7 +5,7 @@ import {
   Search, LayoutDashboard, Shield, Globe, FileText,
   Settings, LogOut, Hash, ChevronDown, ChevronRight,
   Activity, Terminal, Blocks, PanelLeftClose, PanelLeftOpen,
-  Command, X, Bug, Zap, Database, Key, Bell
+  Command, X, Bug, Zap, Database, Key, Bell, PieChart
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -32,6 +32,7 @@ const navGroups: NavGroupData[] = [
     items: [
       { id: 'search',    title: 'Search',      icon: Search,          shortcut: '⌘K' },
       { id: 'dashboard', title: 'Dashboard',   icon: LayoutDashboard, href: '/dashboard' },
+      { id: 'analytics', title: 'Analytics',   icon: PieChart,        href: '/analytics' },
       { id: 'activity',  title: 'Recent Scans',icon: Activity,        href: '/dashboard' },
     ],
   },
@@ -49,6 +50,7 @@ const navGroups: NavGroupData[] = [
         ],
       },
       { id: 'headers',  title: 'Header Audit', icon: Globe,    href: '/dashboard' },
+      { id: 'injection', title: 'Injection Test', icon: Zap,   href: '/scan' },
       { id: 'findings', title: 'Findings',      icon: Bug,      href: '/dashboard', badge: 3 },
       { id: 'reports',  title: 'Reports',       icon: FileText, href: '/reports' },
     ],
