@@ -25,6 +25,30 @@
   --radius-sm: calc(0.75rem - 4px);
 }
 
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #121212;
+  --bg-card: #111111;
+  --bg-card-hover: #161616;
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  --border-card: #1f1f22;
+  --border-subtle: #27272a;
+  --gradient-accent: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
+  --accent-cyan: #38bdf8;
+  --accent-blue: #3b82f6;
+  --severity-critical: #ef4444;
+  --severity-high: #f97316;
+  --severity-medium: #f59e0b;
+  --severity-low: #3b82f6;
+  --severity-info: #8b5cf6;
+  --radius-xl: 1rem;
+  --radius-lg: 0.75rem;
+  --radius-md: 0.5rem;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 * {
   box-sizing: border-box;
 }
