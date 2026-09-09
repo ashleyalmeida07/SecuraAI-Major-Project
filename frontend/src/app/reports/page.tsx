@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+export const dynamic = "force-dynamic";
+
+
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated } from "@/utils/auth";
@@ -59,7 +62,7 @@ const ENDPOINT_TYPE_ICONS: Record<string, React.ReactNode> = {
   unknown: <HelpCircle size={14} />,
 };
 
-export default function ReportsPage() {
+function ReportsInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [scans, setScans] = useState<any[]>([]);
@@ -1107,5 +1110,17 @@ export default function ReportsPage() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ReportsPage() {
+  return (
+    <Suspense fallback={
+      <div className="dark min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted-foreground text-sm">Loading reports...</div>
+      </div>
+    }>
+      <ReportsInner />
+    </Suspense>
   );
 }

@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
-export default function AuthCallbackPage() {
+function CallbackHandler() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -21,11 +21,26 @@ export default function AuthCallbackPage() {
   }, [params, router]);
 
   return (
+    <div className="flex flex-col items-center gap-4 text-muted-foreground">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="text-sm">Signing you in with Google...</p>
+    </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
     <div className="dark min-h-screen bg-background flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4 text-muted-foreground">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm">Signing you in with Google...</p>
-      </div>
+      <Suspense
+        fallback={
+          <div className="flex flex-col items-center gap-4 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm">Loading...</p>
+          </div>
+        }
+      >
+        <CallbackHandler />
+      </Suspense>
     </div>
   );
 }
