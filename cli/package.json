@@ -1,0 +1,46 @@
+{
+  "name": "@authtrack/secura",
+  "version": "0.1.0",
+  "description": "AuthTrack static analysis (SAST) from the command line — streams a five-scanner scan (Semgrep, Bearer, OSV-Scanner, Gitleaks, CodeQL) from the AuthTrack backend and renders it live in your terminal.",
+  "type": "module",
+  "bin": {
+    "secura": "bin/secura.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "sast",
+    "static-analysis",
+    "security",
+    "semgrep",
+    "codeql",
+    "gitleaks",
+    "osv-scanner",
+    "bearer",
+    "cli",
+    "vulnerability",
+    "authtrack"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ashleyalmeida07/Authtrack-Major-Project.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/ashleyalmeida07/Authtrack-Major-Project#readme",
+  "bugs": {
+    "url": "https://github.com/ashleyalmeida07/Authtrack-Major-Project/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "secura": "node bin/secura.mjs"
+  }
+}

@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
@@ -51,6 +51,19 @@ class Finding(Base):
     evidence = Column(Text, nullable=True)
     is_false_positive = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # ── Static analysis provenance (multi-tool scanning) ──
+    # Which scanner produced the finding: semgrep, bearer, osv-scanner,
+    # gitleaks, codeql — or null for findings from the URL-based flows.
+    tool_source = Column(String, nullable=True, index=True)
+    # The scanner's own rule identifier, e.g. "js/sql-injection".
+    rule_id = Column(String, nullable=True)
+    # True when more than one independent tool flagged the same location.
+    multi_tool_confirmed = Column(Boolean, default=False)
+    # CodeQL source → intermediate steps → sink chain. Only CodeQL produces
+    # these, and they are the strongest evidence of a reachable vulnerability,
+    # so the full path is stored rather than flattened into the evidence text.
+    taint_path = Column(JSON, nullable=True)
 
     scan = relationship("Scan", back_populates="findings")
     flow_run = relationship("FlowRun", back_populates="findings")

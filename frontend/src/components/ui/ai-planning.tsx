@@ -17,6 +17,7 @@ export type PlanStepStatus = 'pending' | 'active' | 'success' | 'error';
 export interface PlanStep {
   id: string;
   title: string;
+  subtitle?: string;
   content?: React.ReactNode;
   status: PlanStepStatus;
   icon?: React.ReactNode;
@@ -149,13 +150,20 @@ export const AgentPlanning: React.FC<AgentPlanningProps> = ({
                       `}
                       onClick={(e) => step.content && toggleStep(step.id, e)}
                     >
-                      <span className={`text-[14px] tracking-tight transition-colors duration-200
-                        ${step.status === 'active' ? 'text-foreground font-semibold' : 
-                          step.status === 'error' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 
-                          'text-foreground/80 group-hover:text-foreground font-medium'}
-                      `}>
-                        {step.title}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[14px] tracking-tight transition-colors duration-200
+                          ${step.status === 'active' ? 'text-foreground font-semibold' : 
+                            step.status === 'error' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 
+                            'text-foreground/80 group-hover:text-foreground font-medium'}
+                        `}>
+                          {step.title}
+                        </span>
+                        {step.subtitle && (
+                          <span className="px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider rounded bg-primary/10 text-primary border border-primary/20">
+                            {step.subtitle}
+                          </span>
+                        )}
+                      </div>
 
                       <div className="flex items-center gap-3">
                         {step.duration && (

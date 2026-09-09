@@ -3,9 +3,9 @@
 import React, { useState } from 'react';
 import {
   Search, LayoutDashboard, Shield, Globe, FileText,
-  Settings, LogOut, Hash, ChevronDown, ChevronRight,
-  Activity, Terminal, Blocks, PanelLeftClose, PanelLeftOpen,
-  Command, X, Bug, Zap, Database, Key, Bell, PieChart
+  LogOut, ChevronDown, ChevronRight,
+  Activity, PanelLeftClose, PanelLeftOpen,
+  Command, X, Zap, Bell, PieChart, ShieldCheck
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -39,35 +39,16 @@ const navGroups: NavGroupData[] = [
   {
     heading: 'Security',
     items: [
-      {
-        id: 'scan-static',
-        title: 'Static Scanner',
-        icon: Shield,
-        href: '/scan',
-        children: [
-          { id: 'scan-full',  title: 'Full Scan',  icon: Hash, href: '/scan' },
-          { id: 'scan-recon', title: 'Recon Only', icon: Hash, href: '/scan' },
-        ],
-      },
-      { id: 'headers',  title: 'Header Audit', icon: Globe,    href: '/dashboard' },
-      { id: 'injection', title: 'Injection Test', icon: Zap,   href: '/scan' },
-      { id: 'findings', title: 'Findings',      icon: Bug,      href: '/dashboard', badge: 3 },
+      { id: 'scan-static',    title: 'Static Analysis', icon: Shield,      href: '/scan/static' },
+      { id: 'scan-recon',     title: 'Recon',           icon: Globe,       href: '/scan/recon' },
+      { id: 'scan-headers',   title: 'Header Audit',    icon: ShieldCheck, href: '/scan/full' },
+      { id: 'scan-injection', title: 'Injection Test',  icon: Zap,         href: '/scan/injection' },
       { id: 'reports',  title: 'Reports',       icon: FileText, href: '/reports' },
-    ],
-  },
-  {
-    heading: 'Developers',
-    items: [
-      { id: 'api',      title: 'API Keys',  icon: Key,      href: '/dashboard' },
-      { id: 'webhooks', title: 'Webhooks',  icon: Blocks,   href: '/dashboard' },
-      { id: 'rag',      title: 'RAG / VDB', icon: Database, href: '/dashboard' },
-      { id: 'cli',      title: 'CLI Tools', icon: Terminal, href: '/dashboard' },
     ],
   },
 ];
 
 const bottomItems: NavItemData[] = [
-  { id: 'settings',     title: 'Settings', icon: Settings, href: '/dashboard', shortcut: '⌘,' },
   { id: 'logout',       title: 'Sign Out',  icon: LogOut },
 ];
 

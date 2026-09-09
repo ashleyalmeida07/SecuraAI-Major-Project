@@ -6,14 +6,19 @@ Endpoints:
     POST /scan/full      — Run Flow 1 → Flow 2 chained (full pipeline).
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 import json
 import asyncio
+import os
+import tarfile
+import tempfile
+import traceback
 from app.models.schemas import ScanRequest, HeaderScanRequest, StaticScanRequest, InjectionScanRequest
 from app.agents.recon.graph import recon_graph
 from app.agents.header_audit.graph import header_audit_graph
-from app.agents.static_analysis.graph import static_analysis_graph
+from app.agents.static_analysis.graph import static_analysis_graph, triage_recursion_limit
+from app.agents.static_analysis.tools import cleanup_clone
 from app.agents.injection.graph import injection_graph
 from app.db.session import SessionLocal
 from app.db.models import Scan, FlowRun
@@ -74,7 +79,7 @@ async def run_header_audit(request: HeaderScanRequest):
             "target_url": request.url,
             "endpoints": endpoints,
             "header_results": [],
-            "findings": [],
+            "checklist_results": [],
             "scored_findings": [],
             "audit_report": {},
             "errors": [],
@@ -116,7 +121,7 @@ async def run_full_scan(request: ScanRequest):
             "target_url": request.url,
             "endpoints": endpoints,
             "header_results": [],
-            "findings": [],
+            "checklist_results": [],
             "scored_findings": [],
             "audit_report": {},
             "errors": [],
@@ -137,10 +142,11 @@ async def run_full_scan(request: ScanRequest):
 
 @scan_router.post("/static")
 async def run_static_analysis(request: StaticScanRequest):
-    """Run Flow: Static Analysis with RAG and LLM Triage.
-    
-    Runs Semgrep, retrieves context from ChromaDB, triages with LLM, 
-    and generates fixes for confirmed vulnerabilities.
+    """Run the Static Analysis flow: 5 scanners → merge → RAG triage → fixes.
+
+    Fans out to Semgrep, Bearer, OSV-Scanner, Gitleaks and CodeQL in parallel,
+    merges their findings into one deduplicated set, triages each one against
+    Upstash Vector context, and generates fixes for the confirmed issues.
     """
     db = SessionLocal()
     try:
@@ -149,34 +155,42 @@ async def run_static_analysis(request: StaticScanRequest):
         db.add(scan)
         db.commit()
         db.refresh(scan)
-        
+
         # Create FlowRun record
         flow = FlowRun(scan_id=scan.id, flow_name="static_analysis")
         db.add(flow)
         db.commit()
         db.refresh(flow)
-        
-        result = await static_analysis_graph.ainvoke({
-            "target_path": request.target_path,
-            "scan_id": scan.id,
-            "flow_run_id": flow.id,
-            "semgrep_results": [],
-            "triaged_findings": [],
-            "false_positives": [],
-            "fixes": [],
-            "errors": [],
-        })
 
-        # Update DB status
-        flow.status = "completed"
-        scan.status = "completed"
-        db.commit()
+        result = await static_analysis_graph.ainvoke(
+            _static_initial_state(
+                request.target_path,
+                request.include_codeql,
+                request.codeql_language,
+                request.max_triage,
+                scan.id,
+                flow.id,
+            ),
+            config={"recursion_limit": triage_recursion_limit(request.max_triage)},
+        )
+
+        report = result.get("static_report", {})
+
+        # report_builder already marks both rows completed; this covers the
+        # early-exit paths where it did not run.
+        if flow.status != "completed":
+            flow.status = "completed"
+            scan.status = "completed"
+            db.commit()
 
         return {
             "status": "success",
-            "triaged_findings": result.get("triaged_findings", []),
-            "false_positives": result.get("false_positives", []),
-            "fixes": result.get("fixes", []),
+            "static_analysis_report": report,
+            # Flat aliases kept for older clients.
+            "triaged_findings": report.get("confirmed_findings", []),
+            "false_positives": report.get("ruled_out_findings", []),
+            "safe_patterns": report.get("safe_patterns", []),
+            "fixes": report.get("fixes", []),
             "errors": result.get("errors", []),
         }
     except Exception as e:
@@ -184,6 +198,219 @@ async def run_static_analysis(request: StaticScanRequest):
         raise HTTPException(status_code=500, detail=f"Static analysis failed: {str(e)}")
     finally:
         db.close()
+
+
+def _static_initial_state(
+    target_path: str,
+    include_codeql: bool,
+    codeql_language: str,
+    max_triage: int,
+    scan_id: int,
+    flow_run_id: int,
+) -> dict:
+    """Initial graph state shared by the streaming and non-streaming endpoints."""
+    return {
+        "target_path": target_path,
+        "scan_id": scan_id,
+        "flow_run_id": flow_run_id,
+        "include_codeql": include_codeql,
+        "codeql_language": codeql_language,
+        "max_triage": max_triage,
+        "semgrep_results": [],
+        "bearer_results": [],
+        "osv_results": [],
+        "gitleaks_results": [],
+        "codeql_results": [],
+        "tool_status": {},
+        "merged_findings": [],
+        "merge_stats": {},
+        "safe_patterns": [],
+        "triage_index": 0,
+        "triaged_findings": [],
+        "false_positives": [],
+        "fixes": [],
+        "static_report": {},
+        "errors": [],
+    }
+
+
+# ── Upload transport (npm CLI, transport #3) ────────────────────────────────
+# Uploaded archives are untrusted: cap what an extraction may produce and refuse
+# any member that would escape the destination or is not a plain file/dir.
+MAX_UPLOAD_UNCOMPRESSED = 500 * 1024 * 1024  # 500 MB, decompressed
+MAX_UPLOAD_FILES = 50_000
+
+
+def _is_within(base: str, target: str) -> bool:
+    """True iff `target` resolves to `base` or a path underneath it."""
+    base = os.path.abspath(base)
+    target = os.path.abspath(target)
+    return target == base or target.startswith(base + os.sep)
+
+
+def _safe_extract_tar(archive_path: str, dest_root: str) -> None:
+    """Extract a .tar.gz into dest_root, refusing traversal and link members.
+
+    Guards against Zip-Slip (members like ``../../etc/passwd`` or absolute paths)
+    and planted symlinks/hardlinks/devices. Only regular files and directories
+    whose resolved path stays under ``dest_root`` are written; total uncompressed
+    size and file count are capped. Raises ValueError on anything unsafe.
+    """
+    dest_root_abs = os.path.abspath(dest_root)
+    total = 0
+    count = 0
+    with tarfile.open(archive_path, "r:gz") as tar:
+        for member in tar:
+            count += 1
+            if count > MAX_UPLOAD_FILES:
+                raise ValueError("archive contains too many entries")
+            # Never materialize links or device/fifo nodes from untrusted input.
+            if member.issym() or member.islnk() or member.isdev() or member.isfifo():
+                continue
+            target = os.path.join(dest_root_abs, member.name)
+            if not _is_within(dest_root_abs, target):
+                raise ValueError(f"unsafe path in archive: {member.name!r}")
+            if member.isreg():
+                total += member.size
+                if total > MAX_UPLOAD_UNCOMPRESSED:
+                    raise ValueError("archive is too large when uncompressed")
+            # `filter="data"` (Python 3.12+) is a second, stdlib-maintained guard:
+            # it strips leading slashes, clears setuid/dev bits and re-checks paths.
+            tar.extract(member, dest_root_abs, filter="data")
+
+
+async def _static_event_stream(
+    target_path: str,
+    include_codeql: bool,
+    codeql_language: str,
+    max_triage: int,
+    cleanup=None,
+):
+    """Shared SSE generator for the JSON and upload static-analysis endpoints.
+
+    Emits a node_update per completed node. Because the five scanners run in one
+    superstep, each finishing tool streams its own event — so the four fast tools'
+    results render while CodeQL is still building its database. ``cleanup`` (if
+    given) is invoked once the stream ends, for temp-dir removal after an upload.
+    """
+    db = SessionLocal()
+    try:
+        yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Static Analysis Flow...'})}\n\n"
+
+        # Create Scan + FlowRun records
+        scan = Scan(target=target_path, scan_type="static")
+        db.add(scan)
+        db.commit()
+        db.refresh(scan)
+
+        flow = FlowRun(scan_id=scan.id, flow_name="static_analysis")
+        db.add(flow)
+        db.commit()
+        db.refresh(flow)
+
+        async for chunk in static_analysis_graph.astream(
+            _static_initial_state(
+                target_path, include_codeql, codeql_language, max_triage, scan.id, flow.id
+            ),
+            config={"recursion_limit": triage_recursion_limit(max_triage)},
+        ):
+            for node_name, state_update in chunk.items():
+                event_data = {
+                    "event": "node_update",
+                    "node": node_name,
+                    "state": state_update,
+                }
+                # default=str guards against any non-JSON-native values that
+                # may ride along on DB-derived findings.
+                yield f"data: {json.dumps(event_data, default=str)}\n\n"
+                await asyncio.sleep(0.05)
+
+        if flow.status != "completed":
+            flow.status = "completed"
+            scan.status = "completed"
+            db.commit()
+
+        yield f"data: {json.dumps({'event': 'complete', 'message': 'Static Analysis Complete!'})}\n\n"
+    except Exception as e:
+        db.rollback()
+        traceback.print_exc()
+        yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
+    finally:
+        db.close()
+        if cleanup is not None:
+            try:
+                cleanup()
+            except Exception:
+                traceback.print_exc()
+
+
+@scan_router.post("/stream/static")
+async def stream_static_analysis(request: StaticScanRequest):
+    """Stream the Static Analysis flow via SSE.
+
+    ``target_path`` is a Git URL / ``owner/repo`` shorthand (the backend clones
+    it) or a filesystem path reachable by the backend (scanned in place). For the
+    upload transport used by remote backends, see ``/stream/static/upload``.
+    """
+    return StreamingResponse(
+        _static_event_stream(
+            request.target_path,
+            request.include_codeql,
+            request.codeql_language,
+            request.max_triage,
+        ),
+        media_type="text/event-stream",
+    )
+
+
+@scan_router.post("/stream/static/upload")
+async def stream_static_analysis_upload(
+    file: UploadFile = File(...),
+    include_codeql: bool = Form(True),
+    codeql_language: str = Form(""),
+    max_triage: int = Form(25),
+):
+    """Stream the Static Analysis flow over an uploaded ``.tar.gz`` of the code.
+
+    Used by the npm CLI when the backend is remote (or ``--upload`` is passed):
+    the client packages the local directory and posts it here. We safe-extract it
+    to a temp dir, scan that copy, and delete the temp dir when the stream ends.
+    """
+    workdir = tempfile.mkdtemp(prefix="secura_upload_")
+    src_root = os.path.join(workdir, "src")
+    os.makedirs(src_root, exist_ok=True)
+    archive_path = os.path.join(workdir, "upload.tar.gz")
+
+    try:
+        # Stream the upload to disk in 1 MB chunks (don't buffer it all in memory).
+        with open(archive_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+        # Extract off the event loop — a large archive would otherwise block it.
+        await asyncio.to_thread(_safe_extract_tar, archive_path, src_root)
+        os.remove(archive_path)  # reclaim space before the scan runs
+    except Exception as e:
+        cleanup_clone(workdir)
+        message = f"Upload rejected: {e}"
+
+        async def _error_stream():
+            yield f"data: {json.dumps({'event': 'error', 'message': message})}\n\n"
+
+        return StreamingResponse(_error_stream(), media_type="text/event-stream")
+
+    return StreamingResponse(
+        _static_event_stream(
+            src_root,
+            include_codeql,
+            codeql_language,
+            max_triage,
+            cleanup=lambda: cleanup_clone(workdir),
+        ),
+        media_type="text/event-stream",
+    )
 
 
 @scan_router.post("/stream/recon")
@@ -263,7 +490,7 @@ async def stream_full_scan(request: ScanRequest):
                 "target_url": request.url,
                 "endpoints": endpoints,
                 "header_results": [],
-                "findings": [],
+                "checklist_results": [],
                 "scored_findings": [],
                 "audit_report": {},
                 "errors": [],
