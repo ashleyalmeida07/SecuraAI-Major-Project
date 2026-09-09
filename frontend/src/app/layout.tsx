@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AuthTrack — Multi-Agent Security Scanner",
+  title: "SecuraAI — Multi-Agent Security Scanner",
   description:
-    "AuthTrack uses LangGraph-powered AI agents to crawl, map, and audit security headers of web applications. Discover vulnerabilities with intelligent, automated scanning.",
+    "SecuraAI uses LangGraph-powered AI agents to crawl, map, and audit security headers of web applications. Discover vulnerabilities with intelligent, automated scanning.",
 };
 
 export default function RootLayout({

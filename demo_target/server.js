@@ -24,7 +24,7 @@ const PORT = 4000;
 const JWT_SECRET        = 'hardcoded_jwt_secret_do_not_use';   // gitleaks: jwt-secret
 const DB_PASSWORD       = 'S3cr3tP@ssw0rd!';                  // gitleaks: password
 const AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';             // gitleaks: aws-access-key-id
-const STRIPE_KEY        = 'sk_live_4eC39HqLyjWDarjtT1zdp7dc'; // gitleaks: stripe-secret-key
+const STRIPE_KEY        = 'sk_live_DEMO_FAKE_KEY_DO_NOT_USE_1234567890'; // gitleaks: stripe-secret-key
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VULN-2: Intentionally weak HTTP response headers (Header Audit will flag these)

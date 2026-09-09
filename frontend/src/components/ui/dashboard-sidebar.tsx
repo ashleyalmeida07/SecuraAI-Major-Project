@@ -82,7 +82,7 @@ const mockBottomItems: NavItemData[] = [
 
 function WorkspaceSwitcher({ selected, onSelect }: { selected?: string, onSelect?: (ws: string) => void }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [internalSelected, setInternalSelected] = useState('AuthTrack SecOps');
+  const [internalSelected, setInternalSelected] = useState('SecuraAI SecOps');
   
   const current = selected || internalSelected;
   const handleSelect = onSelect || setInternalSelected;
@@ -109,7 +109,7 @@ function WorkspaceSwitcher({ selected, onSelect }: { selected?: string, onSelect
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute top-[52px] left-0 w-full bg-card border border-border/50 rounded-lg shadow-xl z-50 py-1 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
-            {['AuthTrack SecOps', 'Personal Workspace'].map(ws => (
+            {['SecuraAI SecOps', 'Personal Workspace'].map(ws => (
               <div 
                 key={ws}
                 onClick={() => { handleSelect(ws); setIsOpen(false); }}

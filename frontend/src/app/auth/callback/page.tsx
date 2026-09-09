@@ -12,8 +12,8 @@ export default function AuthCallbackPage() {
     const token = params.get('token');
     const email = params.get('email');
     if (token) {
-      localStorage.setItem('authtrack_token', token);
-      if (email) localStorage.setItem('authtrack_user_email', email);
+      localStorage.setItem('SecuraAI_token', token);
+      if (email) localStorage.setItem('SecuraAI_user_email', email);
       router.replace('/scan');
     } else {
       router.replace('/login');

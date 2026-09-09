@@ -18,7 +18,7 @@ function Navbar() {
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll, { passive: true });
-    setUserEmail(localStorage.getItem('authtrack_user_email'));
+    setUserEmail(localStorage.getItem('SecuraAI_user_email'));
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
@@ -46,7 +46,7 @@ function Navbar() {
             <path d="M16 2v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" transform="rotate(270 16 16)"/>
             <path d="M10 7l6 6 6-6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(270 16 16)"/>
           </svg>
-          <span className="text-white font-medium text-[17px] tracking-[-0.02em]" style={sat}>AuthTrack</span>
+          <span className="text-white font-medium text-[17px] tracking-[-0.02em]" style={sat}>SecuraAI</span>
         </Link>
 
         {/* Desktop nav links */}
@@ -170,7 +170,7 @@ const HeroSection = () => {
           </h1>
 
           <p className="text-white/60 text-lg mt-6 max-w-[620px] leading-relaxed" style={{ ...sat, fontWeight: 400 }}>
-            AuthTrack deploys a chain of AI agents to crawl your app, map its attack surface,
+            SecuraAI deploys a chain of AI agents to crawl your app, map its attack surface,
             audit security headers, and surface actionable findings — all in seconds.
           </p>
 

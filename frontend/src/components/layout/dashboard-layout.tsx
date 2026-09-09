@@ -26,7 +26,7 @@ export type NavGroupData = {
   items: NavItemData[];
 };
 
-/* AuthTrack-specific navigation */
+/* SecuraAI-specific navigation */
 const navGroups: NavGroupData[] = [
   {
     items: [
@@ -84,7 +84,7 @@ function SidebarLogo() {
           <path d="M16 2v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" transform="rotate(270 16 16)"/>
           <path d="M10 7l6 6 6-6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(270 16 16)"/>
         </svg>
-        <span className="text-white font-medium text-[16px] tracking-[-0.02em]">AuthTrack</span>
+        <span className="text-white font-medium text-[16px] tracking-[-0.02em]">SecuraAI</span>
         <ChevronDown className="w-3.5 h-3.5 ml-auto text-white/30 group-hover:text-white/70 transition-colors" strokeWidth={2} />
       </div>
 
@@ -233,15 +233,15 @@ export function DashboardLayout({ children, activeId = 'dashboard' }: {
       router.push('/login');
     } else {
       setIsAuth(true);
-      setUserEmail(localStorage.getItem('authtrack_user_email'));
+      setUserEmail(localStorage.getItem('SecuraAI_user_email'));
     }
   }, [router]);
 
   const handleNavSelect = (id: string) => {
     if (id === 'search') { setSearchOpen(true); return; }
     if (id === 'logout') {
-      localStorage.removeItem('authtrack_token');
-      localStorage.removeItem('authtrack_user_email');
+      localStorage.removeItem('SecuraAI_token');
+      localStorage.removeItem('SecuraAI_user_email');
       router.push('/login');
       return;
     }
@@ -286,7 +286,7 @@ export function DashboardLayout({ children, activeId = 'dashboard' }: {
                 : <PanelLeftOpen className="w-[18px] h-[18px]" strokeWidth={1.5} />}
             </button>
             <div className="flex items-center gap-2 text-sm" style={{ fontFamily: '"Satoshi", sans-serif' }}>
-              <span style={{ color: 'rgba(255,255,255,0.35)' }}>AuthTrack</span>
+              <span style={{ color: 'rgba(255,255,255,0.35)' }}>SecuraAI</span>
               <span style={{ color: 'rgba(255,255,255,0.2)' }}>/</span>
               <span className="font-medium" style={{ color: 'rgba(255,255,255,0.85)' }}>{activeTitle}</span>
             </div>

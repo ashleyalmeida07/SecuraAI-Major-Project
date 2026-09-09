@@ -78,7 +78,7 @@ export default function ReportsPage() {
       return;
     }
 
-    const historyRaw = localStorage.getItem("authtrack_scan_history");
+    const historyRaw = localStorage.getItem("SecuraAI_scan_history");
     if (historyRaw) {
       const history = JSON.parse(historyRaw);
       setScans(history);

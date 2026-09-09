@@ -310,14 +310,14 @@ function persistRun(mode: ScanMode, target: string, states: Record<string, any>)
       mode,
       data,
     };
-    const raw = localStorage.getItem("authtrack_scan_history");
+    const raw = localStorage.getItem("SecuraAI_scan_history");
     const history = raw ? JSON.parse(raw) : [];
     history.unshift(record);
-    localStorage.setItem("authtrack_scan_history", JSON.stringify(history));
+    localStorage.setItem("SecuraAI_scan_history", JSON.stringify(history));
 
-    sessionStorage.setItem("authtrack_scan_result", JSON.stringify(data));
-    sessionStorage.setItem("authtrack_scan_mode", mode);
-    sessionStorage.setItem("authtrack_scan_url", target);
+    sessionStorage.setItem("SecuraAI_scan_result", JSON.stringify(data));
+    sessionStorage.setItem("SecuraAI_scan_mode", mode);
+    sessionStorage.setItem("SecuraAI_scan_url", target);
   } catch {
     // A full or unavailable storage quota must not fail a completed scan.
   }

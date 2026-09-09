@@ -36,7 +36,7 @@ export default function HomePage() {
                 Three AI workflows.{" "}<em style={{ fontStyle: "italic", fontWeight: 400 }}>One</em>{" "}unified picture.
               </h2>
               <p className="text-white/50 text-lg mt-5 max-w-xl mx-auto leading-relaxed" style={{ ...sat, fontWeight: 400 }}>
-                AuthTrack chains LangGraph agents across three specialised flows that hand off data to each other automatically.
+                SecuraAI chains LangGraph agents across three specialised flows that hand off data to each other automatically.
               </p>
             </div>
           </ScrollReveal>
@@ -159,7 +159,7 @@ export default function HomePage() {
                 <path d="M16 2v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"/><path d="M10 7l6 6 6-6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M16 2v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" transform="rotate(180 16 16)"/><path d="M10 7l6 6 6-6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(180 16 16)"/>
               </svg>
-              <span className="text-white font-medium text-[17px]" style={sat}>AuthTrack</span>
+              <span className="text-white font-medium text-[17px]" style={sat}>SecuraAI</span>
             </div>
             <p className="text-white/40 text-sm leading-relaxed" style={sat}>Multi-Agent Security Scanner powered by LangGraph and FastAPI.</p>
           </div>
@@ -179,7 +179,7 @@ export default function HomePage() {
           ))}
         </div>
         <div className="max-w-6xl mx-auto mt-12 pt-8 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-white/30 text-sm" style={sat}>© 2026 AuthTrack. All rights reserved.</p>
+          <p className="text-white/30 text-sm" style={sat}>© 2026 SecuraAI. All rights reserved.</p>
           <div className="flex flex-wrap gap-x-8 gap-y-2">
             {["LangGraph", "FastAPI", "Semgrep", "Upstash"].map((t) => (
               <span key={t} className="text-white/20 text-xs tracking-widest uppercase" style={sat}>{t}</span>

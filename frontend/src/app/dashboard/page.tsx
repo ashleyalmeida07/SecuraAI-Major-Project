@@ -62,7 +62,7 @@ export default function DashboardPage() {
       return;
     }
 
-    const historyRaw = localStorage.getItem("authtrack_scan_history");
+    const historyRaw = localStorage.getItem("SecuraAI_scan_history");
     if (historyRaw) {
       setScans(JSON.parse(historyRaw));
     }
@@ -71,7 +71,7 @@ export default function DashboardPage() {
   const deleteScan = (id: string) => {
     const updatedScans = scans.filter((s) => s.id !== id);
     setScans(updatedScans);
-    localStorage.setItem("authtrack_scan_history", JSON.stringify(updatedScans));
+    localStorage.setItem("SecuraAI_scan_history", JSON.stringify(updatedScans));
   };
 
   if (!mounted) return null;

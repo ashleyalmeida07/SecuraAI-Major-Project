@@ -109,7 +109,7 @@ export function HeroSection() {
                     Intelligent Security Scanner for the Web
                   </h1>
                   <p className="mx-auto mt-8 max-w-2xl text-balance text-lg text-muted-foreground">
-                    AuthTrack deploys a chain of AI agents to crawl your application, map its attack surface, audit security headers, and deliver actionable vulnerability insights — all in seconds.
+                    SecuraAI deploys a chain of AI agents to crawl your application, map its attack surface, audit security headers, and deliver actionable vulnerability insights — all in seconds.
                   </p>
                 </AnimatedGroup>
 
@@ -290,7 +290,7 @@ const HeroHeader = () => {
                 className="flex items-center space-x-2"
               >
                 <Logo />
-                <span className="font-bold text-lg tracking-tight">AuthTrack</span>
+                <span className="font-bold text-lg tracking-tight">SecuraAI</span>
               </Link>
 
               <button

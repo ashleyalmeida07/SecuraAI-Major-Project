@@ -71,7 +71,7 @@ export const SCAN_FLOWS: ScanFlowMeta[] = [
       "code, and has an LLM confirm or rule it out before writing a patch. Run it from your " +
       "terminal with the secura npm CLI, or in the form below.",
     bullets: [
-      "Runs from your terminal via the secura npm CLI (npm i -g @authtrack/secura)",
+      "Runs from your terminal via the secura npm CLI (npm i -g @SecuraAI/secura)",
       "Scan a local path or paste a public GitHub repo URL",
       "Semgrep, Bearer, OSV-Scanner, Gitleaks and CodeQL run concurrently",
       "Cross-tool deduplication with multi-tool corroboration",

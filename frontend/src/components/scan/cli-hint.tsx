@@ -116,9 +116,9 @@ export function CliHint({ path, includeCodeql }: { path: string; includeCodeql: 
           </div>
           <p className="text-[11px] leading-5 text-muted-foreground">
             First time? Install with{" "}
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">npm i -g @authtrack/secura</code>{" "}
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">npm i -g @SecuraAI/secura</code>{" "}
             (or run it once with{" "}
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">npx @authtrack/secura</code>).{" "}
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">npx @SecuraAI/secura</code>).{" "}
             <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">secura scan --help</code>{" "}
             lists every flag (<span className="font-mono">--max-triage</span>,{" "}
             <span className="font-mono">--fail-on</span>, <span className="font-mono">--json</span> …).

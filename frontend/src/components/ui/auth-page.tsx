@@ -175,8 +175,8 @@ export function AuthPage({ mode = 'login' }: AuthPageProps) {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.detail || 'Something went wrong.'); return; }
-      localStorage.setItem('authtrack_token', data.access_token);
-      localStorage.setItem('authtrack_user_email', email);
+      localStorage.setItem('SecuraAI_token', data.access_token);
+      localStorage.setItem('SecuraAI_user_email', email);
       router.push('/scan');
     } catch { setError('Could not reach the server.'); }
     finally { setLoading(false); }
@@ -200,13 +200,13 @@ export function AuthPage({ mode = 'login' }: AuthPageProps) {
         {/* logo */}
         <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: '8px', color: '#fff' }}>
           <AuthLogo />
-          <span style={{ fontFamily: '"Satoshi", sans-serif', fontWeight: 600, fontSize: '18px' }}>AuthTrack</span>
+          <span style={{ fontFamily: '"Satoshi", sans-serif', fontWeight: 600, fontSize: '18px' }}>SecuraAI</span>
         </div>
         {/* quote */}
         <div style={{ position: 'relative', zIndex: 2, marginTop: 'auto' }}>
           <blockquote style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <p style={{ fontFamily: '"Satoshi", sans-serif', fontSize: '18px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.6 }}>
-              &ldquo;AuthTrack found three critical header misconfigurations in our app within
+              &ldquo;SecuraAI found three critical header misconfigurations in our app within
               the first 30 seconds. Incredibly useful for any security-conscious team.&rdquo;
             </p>
             <footer style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.35)' }}>
@@ -239,7 +239,7 @@ export function AuthPage({ mode = 'login' }: AuthPageProps) {
               Sign In or Join Now!
             </h1>
             <p style={{ fontFamily: '"Satoshi", sans-serif', fontSize: '15px', color: 'rgba(255,255,255,0.4)', margin: 0 }}>
-              {isLogin ? 'Login or create your AuthTrack account.' : 'Create your AuthTrack account.'}
+              {isLogin ? 'Login or create your SecuraAI account.' : 'Create your SecuraAI account.'}
             </p>
           </div>
 
