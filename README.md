@@ -214,15 +214,6 @@ SecuraAI-Major-Project/
 └── render.yaml                 # Render deployment config
 ```
 
----
-
-## Team
-
-| Roll No | Name | Division |
-|---|---|---|
-| 10246 (Leader) | Jason Gonsalves | B |
-| 10227 | Ashley Almeida | B |
-| 10261 | Nathan Murzello | B |
 
 ---
 
