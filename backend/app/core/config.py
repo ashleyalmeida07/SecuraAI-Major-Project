@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openrouter"
     LLM_MODEL: str = "nvidia/nemotron-3-ultra-550b-a55b:free"  # best free model on OpenRouter
 
+    # Fallback LLM — used automatically when the primary provider errors out
+    # (rate limit, timeout, 5xx, auth). Defaults to Kimi K3 on NVIDIA NIM.
+    # Only attaches if the fallback provider's API key is set (NVIDIA_API_KEY
+    # for "nvidia") and it differs from the primary; otherwise it's skipped.
+    LLM_FALLBACK_ENABLED: bool = True
+    LLM_FALLBACK_PROVIDER: str = "nvidia"
+    LLM_FALLBACK_MODEL: str = "moonshotai/kimi-k3"
+
     # API Keys — only the one matching LLM_PROVIDER is required
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None

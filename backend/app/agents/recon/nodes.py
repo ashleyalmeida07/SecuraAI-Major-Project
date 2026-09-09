@@ -12,7 +12,7 @@ import time
 from urllib.parse import urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from datetime import datetime
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from app.agents.recon.state import ReconState
 from app.core.llm import get_llm
@@ -29,6 +29,14 @@ SENSITIVE_RE = re.compile(
 # Heavy sub-resources we never inspect — aborting them speeds the crawl up
 # without changing which links, forms or API calls we discover.
 _BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+
+# A real desktop-Chrome fingerprint. An obvious bot UA like "AuthTrack-Crawler"
+# is challenged or blocked outright by Cloudflare and other bot-management on
+# modern sites, which is the fastest way to an empty report.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
 
 
 def _same_site(host: str, base: str) -> bool:
@@ -172,10 +180,18 @@ async def crawler_node(state: ReconState) -> dict:
             pass
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # Disable the AutomationControlled flag so navigator.webdriver isn't a
+        # dead giveaway to bot detection.
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         context = await browser.new_context(
             ignore_https_errors=True,
-            user_agent="AuthTrack-Crawler/0.1",
+            user_agent=_BROWSER_UA,
+            viewport={"width": 1366, "height": 768},
+            locale="en-US",
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
         )
         page = await context.new_page()
         page.on("response", _on_response)
@@ -191,25 +207,38 @@ async def crawler_node(state: ReconState) -> dict:
 
             try:
                 start_time = time.time()
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-
-                if not response:
-                    continue
+                response = None
+                try:
+                    response = await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                except PlaywrightTimeoutError:
+                    # A heavy SPA or a stalled anti-bot challenge can miss the load
+                    # deadline while still rendering usable DOM. Keep going with a
+                    # partial result rather than dropping the page — and, when it's
+                    # the only page, the entire report.
+                    errors.append(f"Load timeout for {url} — recording a partial result.")
 
                 response_time = round(time.time() - start_time, 3)
 
-                headers = response.headers
-                content_type = headers.get("content-type", "")
-                status_code = response.status
+                if response is not None:
+                    headers = response.headers
+                    content_type = headers.get("content-type", "")
+                    status_code = response.status
 
-                # Prefer the declared length; only download the body if we must.
-                try:
-                    content_length = headers.get("content-length")
-                    if content_length and content_length.isdigit():
-                        response_size = int(content_length)
-                    else:
-                        response_size = len(await response.body())
-                except Exception:
+                    # Prefer the declared length; only download the body if we must.
+                    try:
+                        content_length = headers.get("content-length")
+                        if content_length and content_length.isdigit():
+                            response_size = int(content_length)
+                        else:
+                            response_size = len(await response.body())
+                    except Exception:
+                        response_size = 0
+                else:
+                    # Navigation timed out with no response object — record what
+                    # rendered anyway and parse it for links below.
+                    headers = {}
+                    content_type = "text/html"
+                    status_code = 0
                     response_size = 0
 
                 endpoint_info = {
@@ -480,6 +509,12 @@ Summary (plain text):"""
             summary_text += f"Found {len(classified)} endpoints."
     else:
         summary_text += "No endpoints were found."
+        errs = state.get("errors", [])
+        if errs:
+            summary_text += (
+                f" The crawler logged {len(errs)} issue(s) — the target likely blocks "
+                "automated browsers (e.g. Cloudflare), requires login, or was unreachable."
+            )
 
     report = {
         "target_url": target_url,
@@ -487,6 +522,7 @@ Summary (plain text):"""
         "endpoints": classified,
         "scan_timestamp": datetime.now().isoformat(),
         "summary": summary_text,
+        "errors": state.get("errors", []),
     }
 
     return {"surface_report": report}

@@ -108,14 +108,14 @@ _fix_llm = None
 def _get_triage_llm():
     global _triage_llm
     if _triage_llm is None:
-        _triage_llm = get_llm().with_structured_output(TriageResult)
+        _triage_llm = get_llm(structured_output=TriageResult)
     return _triage_llm
 
 
 def _get_fix_llm():
     global _fix_llm
     if _fix_llm is None:
-        _fix_llm = get_llm().with_structured_output(FixResult)
+        _fix_llm = get_llm(structured_output=FixResult)
     return _fix_llm
 
 
