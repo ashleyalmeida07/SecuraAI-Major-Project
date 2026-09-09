@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:8000/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://securaai-major-project.onrender.com/api/v1';
 
 export async function login(email: string, password: string) {
   const response = await fetch(`${API_URL}/auth/login`, {

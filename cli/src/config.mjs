@@ -8,7 +8,7 @@
 
 // Matches frontend/src/lib/api.ts (API_BASE) so the CLI and the web app default
 // to the same backend.
-const DEFAULT_API = "http://localhost:8000/api/v1";
+const DEFAULT_API = "https://securaai-major-project.onrender.com/api/v1";
 
 export function resolveConfig(values) {
   const raw = values.api || process.env.SECURA_API || DEFAULT_API;
