@@ -175,7 +175,7 @@ export function AuthPage({ mode = 'login' }: AuthPageProps) {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.detail || 'Something went wrong.'); return; }
-      localStorage.setItem('SecuraAI_token', data.access_token);
+      localStorage.setItem('token', data.access_token);
       localStorage.setItem('SecuraAI_user_email', email);
       router.push('/scan');
     } catch { setError('Could not reach the server.'); }

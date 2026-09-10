@@ -240,7 +240,7 @@ export function DashboardLayout({ children, activeId = 'dashboard' }: {
   const handleNavSelect = (id: string) => {
     if (id === 'search') { setSearchOpen(true); return; }
     if (id === 'logout') {
-      localStorage.removeItem('SecuraAI_token');
+      localStorage.removeItem('token');
       localStorage.removeItem('SecuraAI_user_email');
       router.push('/login');
       return;

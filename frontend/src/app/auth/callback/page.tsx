@@ -12,7 +12,7 @@ function CallbackHandler() {
     const token = params.get('token');
     const email = params.get('email');
     if (token) {
-      localStorage.setItem('SecuraAI_token', token);
+      localStorage.setItem('token', token);
       if (email) localStorage.setItem('SecuraAI_user_email', email);
       router.replace('/scan');
     } else {
