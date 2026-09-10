@@ -214,7 +214,6 @@ SecuraAI-Major-Project/
 └── render.yaml                 # Render deployment config
 ```
 
-
 ---
 
 ## License
