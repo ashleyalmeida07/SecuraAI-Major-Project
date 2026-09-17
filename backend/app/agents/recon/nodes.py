@@ -6,8 +6,11 @@ Nodes:
     surface_report_node   — Assembles the final structured attack-surface report.
 """
 
+import asyncio
+import concurrent.futures
 import json
 import re
+import sys
 import time
 from urllib.parse import urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
@@ -85,8 +88,8 @@ async def _settle_page(page) -> None:
 
 # ── Node 1: Crawler ──────────────────────────────────────────────────────────
 
-async def crawler_node(state: ReconState) -> dict:
-    """Crawl the target URL and discover linked pages, forms, and API endpoints.
+async def _crawl_impl(state: ReconState) -> dict:
+    """Core Playwright crawler — always call via crawler_node, never directly.
 
     Renders every page in a headless Chromium via Playwright, so JavaScript apps
     and SPAs work: the DOM is parsed *after* scripts run, and — the part that
@@ -184,7 +187,22 @@ async def crawler_node(state: ReconState) -> dict:
         # dead giveaway to bot detection.
         browser = await p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                # Disable Chrome's background connections to Google servers
+                # (Safe Browsing, component updates, etc.) that cause IPv6
+                # timeout errors on Windows when the IPv6 route is broken.
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-translate",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--safebrowsing-disable-auto-update",
+                "--disable-component-update",
+                "--disable-domain-reliability",
+                "--metrics-recording-only",
+                "--disable-features=SafeBrowsingEnhancedProtection,OptimizationHints",
+            ],
         )
         context = await browser.new_context(
             ignore_https_errors=True,
@@ -381,6 +399,38 @@ async def crawler_node(state: ReconState) -> dict:
         "discovered_urls": unique_discovered,
         "errors": errors,
     }
+
+
+async def crawler_node(state: ReconState) -> dict:
+    """Dispatcher — runs the Playwright crawl on the correct event loop.
+
+    On Windows, uvicorn's --reload mode spawns the server via multiprocessing.
+    That child process always starts with a SelectorEventLoop which does NOT
+    support subprocess creation (Playwright needs this to launch Chromium).
+    Setting WindowsProactorEventLoopPolicy in main.py is too late because
+    uvicorn creates the loop before importing the app.
+
+    Solution: detect a SelectorEventLoop at call-time and transparently run
+    the crawl on a dedicated ProactorEventLoop in a worker thread. The thread
+    is short-lived (one crawl), and the result is awaited normally by LangGraph.
+    On Linux/macOS the crawl runs directly on the current loop.
+    """
+    if sys.platform == "win32":
+        loop = asyncio.get_running_loop()
+        if not isinstance(loop, asyncio.ProactorEventLoop):
+            def _run_in_proactor() -> dict:
+                proactor = asyncio.ProactorEventLoop()
+                asyncio.set_event_loop(proactor)
+                try:
+                    return proactor.run_until_complete(_crawl_impl(state))
+                finally:
+                    proactor.close()
+                    asyncio.set_event_loop(None)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return await loop.run_in_executor(pool, _run_in_proactor)
+
+    return await _crawl_impl(state)
 
 
 # ── Node 2: Endpoint Classifier (LLM) ────────────────────────────────────────

@@ -456,9 +456,13 @@ async def stream_full_scan(request: ScanRequest):
     async def event_generator():
         try:
             yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Full Scan Flow...'})}\n\n"
-            
-            # --- Flow 1 ---
-            recon_final_state = None
+
+            # --- Flow 1: Recon ---
+            # LangGraph astream yields each NODE's *partial* output, not the full
+            # accumulated state.  We must merge every chunk ourselves so that
+            # classified_endpoints (written by classifier_node) is still available
+            # after surface_report_node finishes (which only writes surface_report).
+            recon_accumulated: dict = {}
             async for chunk in recon_graph.astream({
                 "target_url": request.url,
                 "max_depth": request.max_depth,
@@ -468,24 +472,21 @@ async def stream_full_scan(request: ScanRequest):
                 "errors": [],
             }):
                 for node_name, state_update in chunk.items():
+                    # Merge this node's output into the accumulated state
+                    recon_accumulated.update(state_update)
                     event_data = {
                         "event": "node_update",
                         "node": node_name,
-                        "state": state_update
+                        "state": state_update,
                     }
                     yield f"data: {json.dumps(event_data)}\n\n"
-                    recon_final_state = state_update # keep updating to get the last one
                     await asyncio.sleep(0.1)
-            
-            # Handoff event
-            yield f"data: {json.dumps({'event': 'handoff', 'message': 'Passing endpoints to Flow 2...'})}\n\n"
-            
-            # Extract endpoints from the last state chunk of Flow 1
-            # Note: LangGraph state merges, so recon_final_state has what the last node returned
-            # Or we can just rely on the fact that `classifier` node returns `classified_endpoints`
-            endpoints = recon_final_state.get("classified_endpoints", []) if recon_final_state else []
 
-            # --- Flow 2 ---
+            # Handoff: pull classified_endpoints from the merged state
+            endpoints = recon_accumulated.get("classified_endpoints", [])
+            yield f"data: {json.dumps({'event': 'handoff', 'message': f'Passing {len(endpoints)} endpoint(s) to Header Audit...'})}\n\n"
+
+            # --- Flow 2: Header Audit ---
             async for chunk in header_audit_graph.astream({
                 "target_url": request.url,
                 "endpoints": endpoints,
@@ -499,7 +500,7 @@ async def stream_full_scan(request: ScanRequest):
                     event_data = {
                         "event": "node_update",
                         "node": node_name,
-                        "state": state_update
+                        "state": state_update,
                     }
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
