@@ -578,7 +578,10 @@ async def stream_injection_scan(request: InjectionScanRequest):
             if not endpoints:
                 yield f"data: {json.dumps({'event': 'start', 'message': 'No endpoints provided. Running Recon first...'})}\n\n"
 
-                recon_final_state = None
+                # LangGraph astream yields each NODE's partial delta — accumulate
+                # all of them so classified_endpoints (written by classifier_node)
+                # isn't lost when surface_report_node runs last.
+                recon_accumulated: dict = {}
                 async for chunk in recon_graph.astream({
                     "target_url": request.url,
                     "max_depth": request.max_depth,
@@ -588,16 +591,16 @@ async def stream_injection_scan(request: InjectionScanRequest):
                     "errors": [],
                 }):
                     for node_name, state_update in chunk.items():
+                        recon_accumulated.update(state_update)
                         event_data = {
                             "event": "node_update",
                             "node": node_name,
-                            "state": state_update
+                            "state": state_update,
                         }
                         yield f"data: {json.dumps(event_data)}\n\n"
-                        recon_final_state = state_update
                         await asyncio.sleep(0.1)
 
-                endpoints = recon_final_state.get("classified_endpoints", []) if recon_final_state else []
+                endpoints = recon_accumulated.get("classified_endpoints", [])
                 yield f"data: {json.dumps({'event': 'handoff', 'message': f'Recon found {len(endpoints)} endpoints. Starting injection tests...'})}\n\n"
 
             # Filter to injectable endpoints
