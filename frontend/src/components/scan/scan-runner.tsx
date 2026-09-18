@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select";
 import { ScanPipeline } from "@/components/ui/scan-pipeline";
 import { flowByMode, stagesForMode, type ScanMode } from "@/lib/scan-flows";
-import { useScanRun } from "@/components/scan/use-scan-run";
+import { useScanContext, useModeStatuses, useModeProgress } from "@/contexts/scan-context";
 import { ScanTabs } from "@/components/scan/scan-tabs";
 import { CliHint, isGitUrl } from "@/components/scan/cli-hint";
 import { CliInstall } from "@/components/scan/cli-install";
@@ -34,9 +34,12 @@ export function ScanRunner({ mode }: { mode: ScanMode }) {
   const flow = flowByMode(mode);
   const stages = stagesForMode(mode);
 
-  const {
-    scanning, scanComplete, error, activity, statuses, results, progressPct, scanId, start, reset,
-  } = useScanRun(mode);
+  const { getState, start, reset } = useScanContext();
+  const state = getState(mode);
+  const statuses = useModeStatuses(mode);
+  const progressPct = useModeProgress(mode);
+
+  const { scanning, scanComplete, error, activity, results, scanId } = state;
 
   const [target, setTarget] = useState("");
   const [maxDepth, setMaxDepth] = useState(2);
@@ -49,7 +52,7 @@ export function ScanRunner({ mode }: { mode: ScanMode }) {
 
   const handleStart = () => {
     if (!canStart) return;
-    start({ target: target.trim(), maxDepth, maxPages, includeCodeql });
+    start(mode, { target: target.trim(), maxDepth, maxPages, includeCodeql });
   };
 
   const Icon = flow.icon;
@@ -233,7 +236,7 @@ export function ScanRunner({ mode }: { mode: ScanMode }) {
               <Button
                 variant="outline"
                 className="flex-1 font-semibold"
-                onClick={() => { reset(); setTarget(""); }}
+                onClick={() => { reset(mode); setTarget(""); }}
               >
                 Scan Again
               </Button>

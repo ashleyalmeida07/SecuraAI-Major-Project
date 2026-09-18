@@ -11,17 +11,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { SCAN_FLOWS } from "@/lib/scan-flows";
+import { useScanContext } from "@/contexts/scan-context";
 import { cn } from "@/lib/utils";
 
 export function ScanTabs() {
   const pathname = usePathname();
+  const { getState } = useScanContext();
 
   return (
     <div className="flex flex-wrap gap-1 rounded-lg border border-border/60 bg-card/60 p-1">
       {SCAN_FLOWS.map((flow) => {
         const href = `/scan/${flow.slug}`;
         const active = pathname === href;
+        const isRunning = getState(flow.mode).scanning;
         const Icon = flow.icon;
         return (
           <Link
@@ -38,7 +42,12 @@ export function ScanTabs() {
           >
             <Icon className="h-4 w-4" style={active ? { color: flow.accent } : undefined} />
             {flow.short}
-            {flow.badge && (
+            {isRunning ? (
+              <span className="flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                Running
+              </span>
+            ) : flow.badge ? (
               <span
                 className={cn(
                   "rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
@@ -47,7 +56,7 @@ export function ScanTabs() {
               >
                 {flow.badge}
               </span>
-            )}
+            ) : null}
           </Link>
         );
       })}

@@ -1,7 +1,4 @@
 
-
-
-
  claude --resume c24b8a87-bab1-49fa-a240-33232e183288
 
  claude --resume c24b8a87-bab1-49fa-a240-33232e183288
@@ -10,3 +7,6 @@
  https://www.npmjs.com/package/@authtrack/secura
 
  docker run -p 3000:3000 bkimminich/juice-shop
+
+
+ https://demo-target-psi.vercel.app/

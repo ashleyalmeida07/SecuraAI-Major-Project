@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ScanProvider } from "@/contexts/scan-context";
+import { ActiveScanToast } from "@/components/scan/active-scan-toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,7 +24,10 @@ export default function RootLayout({
         />
       </head>
       <body style={{ background: '#0a0a0a', color: '#fff', fontFamily: '"Satoshi", sans-serif', margin: 0, padding: 0 }}>
-        {children}
+        <ScanProvider>
+          {children}
+          <ActiveScanToast />
+        </ScanProvider>
       </body>
     </html>
   );
