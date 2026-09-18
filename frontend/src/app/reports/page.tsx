@@ -12,7 +12,7 @@ import {
   AlertTriangle, AlertCircle, AlertOctagon, Info, ShieldAlert,
   Key, Zap, FileCode, FormInput, LayoutDashboard, HelpCircle,
   Shield, Map, Lock, Globe, Clock, ChevronDown, ChevronRight, FileText, Check, Code,
-  FolderGit2, Wrench, Activity
+  FolderGit2, Wrench, Activity, Loader2
 } from "lucide-react";
 import type { FullScanResponse, ReconResponse, Endpoint, HeaderCheckResult, InjectionReport, InjectionFinding, StaticAnalysisReport, MergedFinding, SafePattern, StaticFix, TaintEvidence, ToolRunStatus } from "@/lib/api";
 import { getScanHistory } from "@/lib/api";
@@ -74,6 +74,7 @@ function ReportsInner() {
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [showDiscarded, setShowDiscarded] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -93,10 +94,27 @@ function ReportsInner() {
         setActiveScanId(history[0].id);
         setActiveTab(firstTabFor(history[0]));
       }
-    }).catch(console.error);
+      setLoading(false);
+    }).catch((err) => {
+      console.error(err);
+      setLoading(false);
+    });
   }, [router, searchParams]);
 
   if (!mounted) return null;
+
+  if (loading) {
+    return (
+      <DashboardLayout activeId="reports">
+        <div className="flex items-center justify-center h-[50vh] w-full">
+          <div className="flex items-center gap-3 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm font-medium">Loading reports...</span>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (scans.length === 0) {
     return (

@@ -57,7 +57,6 @@ export default function DashboardPage() {
   const router = useRouter();
   const [scans, setScans] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
     setMounted(true);
@@ -71,20 +70,8 @@ export default function DashboardPage() {
 
   if (!mounted) return null;
 
-  // ── Per-mode counts + which modes actually appear in history ──
-  const modeCounts = MODE_ORDER.reduce<Record<Mode, number>>((acc, m) => {
-    acc[m] = scans.filter((s) => s.mode === m).length;
-    return acc;
-  }, {} as Record<Mode, number>);
-  const presentModes = MODE_ORDER.filter((m) => modeCounts[m] > 0);
-
-  // Keep the active filter valid if its scans were all deleted.
-  const effectiveFilter: Filter = filter !== "all" && modeCounts[filter as Mode] === 0 ? "all" : filter;
-
-  const filtered = effectiveFilter === "all" ? scans : scans.filter((s) => s.mode === effectiveFilter);
-
-  // ── Aggregate metrics across the filtered set ──
-  const agg = filtered.reduce(
+  // ── Aggregate metrics across ALL scans ──
+  const agg = scans.reduce(
     (a, s) => {
       const m = scanMetrics(s);
       a.endpoints += m.endpoints;
@@ -98,6 +85,12 @@ export default function DashboardPage() {
     },
     { endpoints: 0, headerFindings: 0, injectionConfirmed: 0, injectionTested: 0, staticVulns: 0, staticFalsePositives: 0, staticFixes: 0 }
   );
+  // ── Per-mode counts + which modes actually appear in history ──
+  const modeCounts = MODE_ORDER.reduce<Record<Mode, number>>((acc, m) => {
+    acc[m] = scans.filter((s) => s.mode === m).length;
+    return acc;
+  }, {} as Record<Mode, number>);
+  const presentModes = MODE_ORDER.filter((m) => modeCounts[m] > 0);
 
   // ── Charts (global, across all scans) ──
   const scansByType = presentModes.map((m) => ({ name: MODE_META[m].label, value: modeCounts[m], color: MODE_META[m].color }));
@@ -118,11 +111,6 @@ export default function DashboardPage() {
       { name: "Static", value: totals.static, color: TYPE_COLORS[2] },
     ].filter((d) => d.value > 0);
   })();
-
-  const tabs: { id: Filter; label: string; count: number }[] = [
-    { id: "all", label: "All Scans", count: scans.length },
-    ...presentModes.map((m) => ({ id: m as Filter, label: MODE_META[m].label, count: modeCounts[m] })),
-  ];
 
   return (
     <DashboardLayout activeId="dashboard">
@@ -153,52 +141,15 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            {/* ── Filter tabs by scan type ── */}
-            <div className="flex flex-wrap gap-2 border-b border-border pb-3">
-              {tabs.map((t) => {
-                const isActive = effectiveFilter === t.id;
-                const Icon = t.id === "all" ? LayoutList : MODE_META[t.id as Mode].icon;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setFilter(t.id)}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors border ${
-                      isActive
-                        ? "bg-primary/15 text-foreground border-primary/40"
-                        : "bg-card text-muted-foreground border-border hover:text-foreground hover:border-border/80"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {t.label}
-                    <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${isActive ? "bg-primary/25 text-foreground" : "bg-secondary text-muted-foreground"}`}>
-                      {t.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* ── Filter-aware metric tiles ── */}
+            {/* ── Metric tiles ── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatTile label={effectiveFilter === "all" ? "Total Scans" : `${MODE_META[effectiveFilter as Mode].label} Scans`} value={filtered.length} />
-              {(effectiveFilter === "all" || effectiveFilter === "recon" || effectiveFilter === "full" || effectiveFilter === "injection") && (
-                <StatTile label={effectiveFilter === "injection" ? "Endpoints Tested" : "Endpoints Mapped"} value={effectiveFilter === "injection" ? agg.injectionTested : agg.endpoints} />
-              )}
-              {(effectiveFilter === "all" || effectiveFilter === "full") && (
-                <StatTile label="Header Findings" value={agg.headerFindings} accent={agg.headerFindings > 0 ? "#f59e0b" : undefined} />
-              )}
-              {(effectiveFilter === "all" || effectiveFilter === "injection") && (
-                <StatTile label="Injection Vulns" value={agg.injectionConfirmed} accent={agg.injectionConfirmed > 0 ? "#ef4444" : undefined} />
-              )}
-              {(effectiveFilter === "all" || effectiveFilter === "static") && (
-                <StatTile label="Static Vulns" value={agg.staticVulns} accent={agg.staticVulns > 0 ? "#ef4444" : undefined} />
-              )}
-              {effectiveFilter === "static" && (
-                <>
-                  <StatTile label="False Positives" value={agg.staticFalsePositives} />
-                  <StatTile label="Fixes Generated" value={agg.staticFixes} accent={agg.staticFixes > 0 ? "#00d4ff" : undefined} />
-                </>
-              )}
+              <StatTile label="Total Scans" value={scans.length} />
+              <StatTile label="Endpoints Mapped/Tested" value={agg.endpoints + agg.injectionTested} />
+              <StatTile label="Header Findings" value={agg.headerFindings} accent={agg.headerFindings > 0 ? "#f59e0b" : undefined} />
+              <StatTile label="Injection Vulns" value={agg.injectionConfirmed} accent={agg.injectionConfirmed > 0 ? "#ef4444" : undefined} />
+              <StatTile label="Static Vulns" value={agg.staticVulns} accent={agg.staticVulns > 0 ? "#ef4444" : undefined} />
+              <StatTile label="False Positives" value={agg.staticFalsePositives} />
+              <StatTile label="Fixes Generated" value={agg.staticFixes} accent={agg.staticFixes > 0 ? "#00d4ff" : undefined} />
             </div>
 
             {/* ── Overview charts ── */}
@@ -227,71 +178,10 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ── Scan history list (filtered) ── */}
-            <div className="flex flex-col gap-4">
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                {effectiveFilter === "all" ? "All Scans" : `${MODE_META[effectiveFilter as Mode].label} Scans`} ({filtered.length})
-              </h2>
-              <div className="grid gap-4">
-                {filtered.map((scan) => {
-                  const mode: Mode = MODE_ORDER.includes(scan.mode) ? scan.mode : "recon";
-                  const meta = MODE_META[mode];
-                  const Icon = meta.icon;
-                  const m = scanMetrics(scan);
-                  const isStatic = mode === "static";
-
-                  // Headline metric per mode.
-                  const headline =
-                    mode === "static" ? { value: m.staticVulns, label: "Vulnerabilities" }
-                    : mode === "injection" ? { value: m.injectionConfirmed, label: "Confirmed Vulns" }
-                    : mode === "full" ? { value: m.headerFindings, label: "Header Findings" }
-                    : { value: m.endpoints, label: "Endpoints" };
-
-                  return (
-                    <div key={scan.id} className="bg-card border border-border rounded-lg p-5 flex flex-col sm:flex-row gap-4 sm:items-center justify-between hover:border-primary/50 transition-colors">
-                      <div className="flex items-start gap-4 min-w-0">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: `${meta.color}1a` }}>
-                          <Icon className="h-5 w-5" style={{ color: meta.color }} />
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="font-semibold text-base flex items-center gap-2 min-w-0">
-                            <span className="truncate max-w-[380px]" title={scan.url}>{scan.url}</span>
-                            <span
-                              className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full shrink-0"
-                              style={{ background: `${meta.color}1a`, color: meta.color }}
-                            >
-                              {meta.label}
-                            </span>
-                          </h3>
-                          <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" /> {new Date(scan.timestamp).toLocaleString()}</span>
-                            <span className="flex items-center gap-1.5">
-                              {isStatic ? <FolderGit2 className="h-3.5 w-3.5" /> : <Globe className="h-3.5 w-3.5" />}
-                              {isStatic ? `${m.staticFixes} fix${m.staticFixes !== 1 ? "es" : ""}` : `${m.endpoints} Endpoints`}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-6 mt-4 sm:mt-0 pt-4 sm:pt-0 border-t sm:border-t-0 border-border">
-                        <div className="text-center sm:text-right">
-                          <div className="text-2xl font-bold" style={headline.value > 0 && (mode === "injection" || mode === "static") ? { color: "#ef4444" } : undefined}>
-                            {headline.value}
-                          </div>
-                          <div className="text-xs text-muted-foreground uppercase tracking-wider">{headline.label}</div>
-                        </div>
-
-                        <Link
-                          href={`/reports?id=${scan.id}`}
-                          className="flex items-center gap-2 px-4 py-2 rounded-md bg-secondary hover:bg-secondary/80 text-sm font-medium transition-colors ml-auto sm:ml-0"
-                        >
-                          View Report <ArrowRight className="h-4 w-4" />
-                        </Link>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="mt-6 flex justify-center">
+              <Link href="/recent" className="flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors">
+                View all recent scans <ArrowRight className="w-4 h-4" />
+              </Link>
             </div>
           </>
         )}

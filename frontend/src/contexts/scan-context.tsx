@@ -16,6 +16,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import {
   scanFullStream,
   scanInjectionStream,
@@ -81,7 +83,10 @@ const ScanContext = createContext<ScanContextValue | null>(null);
 const now = () =>
   new Date().toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-const nodeIds = (mode: ScanMode) => FLOW_NODES[mode] ?? [];
+const nodeIds = (mode: ScanMode): string[] =>
+  mode === "static"
+    ? STATIC_NODE_IDS
+    : (FLOW_NODES[mode as Exclude<ScanMode, "static">]?.map((n) => n.id) ?? []);
 
 function deriveStaticStatuses(done: Set<string>, running: boolean): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
@@ -111,6 +116,8 @@ function deriveFlowStatuses(ids: string[], done: Set<string>, running: boolean):
 
 // ─── provider ─────────────────────────────────────────────────────────────────
 export function ScanProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
   // One state entry per mode, stored as a ref so stream callbacks always see
   // the latest values without stale closures, then mirrored into React state
   // for re-renders.
@@ -209,6 +216,16 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
 
       const finalDone = mode === "static" ? [...ids, "dispatch"] : [...ids];
       patch(mode, { doneNodes: finalDone, scanComplete: true, activity: "Scan complete — all nodes finished." });
+
+      const finalScanId = storeRef.current[mode].scanId;
+      toast.success(`${mode === 'static' ? 'Static Analysis' : mode === 'recon' ? 'Recon' : mode === 'full' ? 'Header Audit' : 'Injection Test'} completed!`, {
+        description: "The results have been safely stored in your scan history.",
+        action: finalScanId ? {
+          label: "View Report",
+          onClick: () => router.push(`/reports?id=${finalScanId}`)
+        } : undefined,
+        duration: 8000,
+      });
 
       // Persist to sessionStorage for immediate report view
       try {

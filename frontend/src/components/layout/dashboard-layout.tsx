@@ -33,7 +33,7 @@ const navGroups: NavGroupData[] = [
       { id: 'search',    title: 'Search',      icon: Search,          shortcut: '⌘K' },
       { id: 'dashboard', title: 'Dashboard',   icon: LayoutDashboard, href: '/dashboard' },
       { id: 'analytics', title: 'Analytics',   icon: PieChart,        href: '/analytics' },
-      { id: 'activity',  title: 'Recent Scans',icon: Activity,        href: '/dashboard' },
+      { id: 'activity',  title: 'Recent Scans',icon: Activity,        href: '/recent' },
     ],
   },
   {
