@@ -9,9 +9,10 @@ import Link from "next/link";
 import { isAuthenticated } from "@/utils/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
-  Shield, Globe, Clock, Activity, ArrowRight, Trash2,
+  Shield, Globe, Clock, Activity, ArrowRight,
   Map, Zap, Code, FolderGit2, Bug, LayoutList, PlusCircle
 } from "lucide-react";
+import { getScanHistory } from "@/lib/api";
 import { DonutChart, VerticalBars, TYPE_COLORS } from "@/components/ui/report-charts";
 
 type Mode = "recon" | "full" | "injection" | "static";
@@ -65,17 +66,8 @@ export default function DashboardPage() {
       return;
     }
 
-    const historyRaw = localStorage.getItem("SecuraAI_scan_history");
-    if (historyRaw) {
-      setScans(JSON.parse(historyRaw));
-    }
+    getScanHistory().then(setScans).catch(console.error);
   }, [router]);
-
-  const deleteScan = (id: string) => {
-    const updatedScans = scans.filter((s) => s.id !== id);
-    setScans(updatedScans);
-    localStorage.setItem("SecuraAI_scan_history", JSON.stringify(updatedScans));
-  };
 
   if (!mounted) return null;
 
@@ -295,13 +287,6 @@ export default function DashboardPage() {
                         >
                           View Report <ArrowRight className="h-4 w-4" />
                         </Link>
-                        <button
-                          onClick={() => deleteScan(scan.id)}
-                          className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
-                          title="Delete Scan"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
                       </div>
                     </div>
                   );

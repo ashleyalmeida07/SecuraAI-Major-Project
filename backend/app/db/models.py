@@ -21,6 +21,7 @@ class Scan(Base):
     status = Column(String, default="running")  # "running", "completed", "failed"
     started_at = Column(DateTime, default=datetime.datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
+    raw_data = Column(JSON, nullable=True)
 
     flow_runs = relationship("FlowRun", back_populates="scan")
     findings = relationship("Finding", back_populates="scan")

@@ -242,6 +242,25 @@ export interface TaintEvidence {
   triage_reason: string;
 }
 
+export interface ScanHistoryItem {
+  id: string;
+  timestamp: string;
+  url: string;
+  mode: string;
+  data: ScanData;
+}
+
+export type ScanData = FullScanResponse | ReconResponse | { injection_report?: InjectionReport; surface_report?: SurfaceReport } | { static_analysis_report?: StaticAnalysisReport };
+
+export async function getScanHistory(): Promise<ScanHistoryItem[]> {
+  const response = await fetch(`${API_BASE}/scan/history`);
+  if (!response.ok) {
+    throw new Error(`History fetch failed: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.history || [];
+}
+
 /** The final output of the Static Analysis flow. */
 export interface StaticAnalysisReport {
   /** The scanned target — a local path, or the repo URL for a cloned scan. */

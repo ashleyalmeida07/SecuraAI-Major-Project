@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 import json
 import asyncio
+import datetime
 import os
 import tarfile
 import tempfile
@@ -308,6 +309,7 @@ async def _static_event_stream(
         db.commit()
         db.refresh(flow)
 
+        static_accumulated: dict = {}
         async for chunk in static_analysis_graph.astream(
             _static_initial_state(
                 target_path, include_codeql, codeql_language, max_triage, scan.id, flow.id
@@ -315,6 +317,7 @@ async def _static_event_stream(
             config={"recursion_limit": triage_recursion_limit(max_triage)},
         ):
             for node_name, state_update in chunk.items():
+                static_accumulated.update(state_update)
                 event_data = {
                     "event": "node_update",
                     "node": node_name,
@@ -328,9 +331,13 @@ async def _static_event_stream(
         if flow.status != "completed":
             flow.status = "completed"
             scan.status = "completed"
+            scan.finished_at = datetime.datetime.utcnow()
+            scan.raw_data = {
+                "static_analysis_report": static_accumulated.get("static_report", {})
+            }
             db.commit()
 
-        yield f"data: {json.dumps({'event': 'complete', 'message': 'Static Analysis Complete!'})}\n\n"
+        yield f"data: {json.dumps({'event': 'complete', 'message': 'Static Analysis Complete!', 'scan_id': str(scan.id)})}\n\n"
     except Exception as e:
         db.rollback()
         traceback.print_exc()
@@ -418,50 +425,15 @@ async def stream_recon(request: ScanRequest):
     """Stream Flow 1: Recon & Surface Mapping using SSE."""
     
     async def event_generator():
+        db = SessionLocal()
+        scan = Scan(target=request.url, scan_type="recon", status="running")
         try:
-            # Yield initial state
+            db.add(scan)
+            db.commit()
+            db.refresh(scan)
+
             yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Recon Flow...'})}\n\n"
             
-            # Use astream to get node outputs as they complete
-            async for chunk in recon_graph.astream({
-                "target_url": request.url,
-                "max_depth": request.max_depth,
-                "discovered_urls": [],
-                "classified_endpoints": [],
-                "surface_report": {},
-                "errors": [],
-            }):
-                # chunk is typically a dict with a single key (the node name)
-                for node_name, state_update in chunk.items():
-                    event_data = {
-                        "event": "node_update",
-                        "node": node_name,
-                        "state": state_update
-                    }
-                    yield f"data: {json.dumps(event_data)}\n\n"
-                    # Small delay to ensure chunking works nicely
-                    await asyncio.sleep(0.1)
-            
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'Recon Flow Complete!'})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@scan_router.post("/stream/full")
-async def stream_full_scan(request: ScanRequest):
-    """Stream Flow 1 (Recon) -> Flow 2 (Header Audit) using SSE."""
-    
-    async def event_generator():
-        try:
-            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Full Scan Flow...'})}\n\n"
-
-            # --- Flow 1: Recon ---
-            # LangGraph astream yields each NODE's *partial* output, not the full
-            # accumulated state.  We must merge every chunk ourselves so that
-            # classified_endpoints (written by classifier_node) is still available
-            # after surface_report_node finishes (which only writes surface_report).
             recon_accumulated: dict = {}
             async for chunk in recon_graph.astream({
                 "target_url": request.url,
@@ -472,7 +444,58 @@ async def stream_full_scan(request: ScanRequest):
                 "errors": [],
             }):
                 for node_name, state_update in chunk.items():
-                    # Merge this node's output into the accumulated state
+                    recon_accumulated.update(state_update)
+                    event_data = {
+                        "event": "node_update",
+                        "node": node_name,
+                        "state": state_update
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    await asyncio.sleep(0.1)
+            
+            # Save raw data
+            scan.status = "completed"
+            scan.finished_at = datetime.datetime.utcnow()
+            scan.raw_data = {
+                "surface_report": recon_accumulated.get("surface_report", {})
+            }
+            db.commit()
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Recon Flow Complete!', 'scan_id': str(scan.id)})}\n\n"
+        except Exception as e:
+            scan.status = "failed"
+            db.commit()
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+        finally:
+            db.close()
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@scan_router.post("/stream/full")
+async def stream_full_scan(request: ScanRequest):
+    """Stream Flow 1 (Recon) -> Flow 2 (Header Audit) using SSE."""
+    
+    async def event_generator():
+        db = SessionLocal()
+        scan = Scan(target=request.url, scan_type="full", status="running")
+        try:
+            db.add(scan)
+            db.commit()
+            db.refresh(scan)
+
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Full Scan Flow...'})}\n\n"
+
+            recon_accumulated: dict = {}
+            async for chunk in recon_graph.astream({
+                "target_url": request.url,
+                "max_depth": request.max_depth,
+                "discovered_urls": [],
+                "classified_endpoints": [],
+                "surface_report": {},
+                "errors": [],
+            }):
+                for node_name, state_update in chunk.items():
                     recon_accumulated.update(state_update)
                     event_data = {
                         "event": "node_update",
@@ -482,11 +505,10 @@ async def stream_full_scan(request: ScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
 
-            # Handoff: pull classified_endpoints from the merged state
             endpoints = recon_accumulated.get("classified_endpoints", [])
             yield f"data: {json.dumps({'event': 'handoff', 'message': f'Passing {len(endpoints)} endpoint(s) to Header Audit...'})}\n\n"
 
-            # --- Flow 2: Header Audit ---
+            audit_accumulated: dict = {}
             async for chunk in header_audit_graph.astream({
                 "target_url": request.url,
                 "endpoints": endpoints,
@@ -497,6 +519,7 @@ async def stream_full_scan(request: ScanRequest):
                 "errors": [],
             }):
                 for node_name, state_update in chunk.items():
+                    audit_accumulated.update(state_update)
                     event_data = {
                         "event": "node_update",
                         "node": node_name,
@@ -505,11 +528,24 @@ async def stream_full_scan(request: ScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
 
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!'})}\n\n"
+            # Save raw data
+            scan.status = "completed"
+            scan.finished_at = datetime.datetime.utcnow()
+            scan.raw_data = {
+                "surface_report": recon_accumulated.get("surface_report", {}),
+                "header_audit_report": audit_accumulated.get("audit_report", {})
+            }
+            db.commit()
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!', 'scan_id': str(scan.id)})}\n\n"
         except Exception as e:
+            scan.status = "failed"
+            db.commit()
             import traceback
             traceback.print_exc()
             yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
+        finally:
+            db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -569,10 +605,17 @@ async def stream_injection_scan(request: InjectionScanRequest):
     """
 
     async def event_generator():
+        db = SessionLocal()
+        scan = Scan(target=request.url, scan_type="injection", status="running")
         try:
+            db.add(scan)
+            db.commit()
+            db.refresh(scan)
+
             yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Injection Testing Flow...'})}\n\n"
 
             endpoints = request.endpoints
+            recon_accumulated: dict = {}
 
             # If no endpoints, run recon first
             if not endpoints:
@@ -581,7 +624,6 @@ async def stream_injection_scan(request: InjectionScanRequest):
                 # LangGraph astream yields each NODE's partial delta — accumulate
                 # all of them so classified_endpoints (written by classifier_node)
                 # isn't lost when surface_report_node runs last.
-                recon_accumulated: dict = {}
                 async for chunk in recon_graph.astream({
                     "target_url": request.url,
                     "max_depth": request.max_depth,
@@ -606,6 +648,7 @@ async def stream_injection_scan(request: InjectionScanRequest):
             # Filter to injectable endpoints
             injectable = [ep for ep in endpoints if ep.get("endpoint_type") not in ("static_asset",)]
 
+            injection_accumulated: dict = {}
             # Stream the injection graph
             async for chunk in injection_graph.astream({
                 "target_url": request.url,
@@ -619,6 +662,7 @@ async def stream_injection_scan(request: InjectionScanRequest):
                 "errors": [],
             }):
                 for node_name, state_update in chunk.items():
+                    injection_accumulated.update(state_update)
                     event_data = {
                         "event": "node_update",
                         "node": node_name,
@@ -627,8 +671,45 @@ async def stream_injection_scan(request: InjectionScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
 
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!'})}\n\n"
+            # Save raw data
+            scan.status = "completed"
+            scan.finished_at = datetime.datetime.utcnow()
+            
+            raw_data = {
+                "injection_report": injection_accumulated.get("injection_report", {})
+            }
+            if not request.endpoints:
+                raw_data["surface_report"] = recon_accumulated.get("surface_report", {})
+            
+            scan.raw_data = raw_data
+            db.commit()
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!', 'scan_id': str(scan.id)})}\n\n"
         except Exception as e:
+            scan.status = "failed"
+            db.commit()
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+        finally:
+            db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@scan_router.get("/history")
+async def get_scan_history():
+    """Fetch all completed scan reports for the dashboard."""
+    db = SessionLocal()
+    try:
+        scans = db.query(Scan).filter(Scan.status == "completed", Scan.raw_data.isnot(None)).order_by(Scan.started_at.desc()).all()
+        history = []
+        for s in scans:
+            history.append({
+                "id": str(s.id),
+                "timestamp": s.started_at.isoformat() + "Z",
+                "url": s.target,
+                "mode": s.scan_type,
+                "data": s.raw_data
+            })
+        return {"status": "success", "history": history}
+    finally:
+        db.close()

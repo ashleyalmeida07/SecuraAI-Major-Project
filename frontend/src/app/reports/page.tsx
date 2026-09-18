@@ -15,6 +15,7 @@ import {
   FolderGit2, Wrench, Activity
 } from "lucide-react";
 import type { FullScanResponse, ReconResponse, Endpoint, HeaderCheckResult, InjectionReport, InjectionFinding, StaticAnalysisReport, MergedFinding, SafePattern, StaticFix, TaintEvidence, ToolRunStatus } from "@/lib/api";
+import { getScanHistory } from "@/lib/api";
 import { DonutChart, CategoryBars, RiskGauge, computeRiskScore, SEVERITY_COLORS, TYPE_COLORS } from "@/components/ui/report-charts";
 import styles from "../dashboard/dashboard.module.css";
 
@@ -81,9 +82,7 @@ function ReportsInner() {
       return;
     }
 
-    const historyRaw = localStorage.getItem("SecuraAI_scan_history");
-    if (historyRaw) {
-      const history = JSON.parse(historyRaw);
+    getScanHistory().then((history) => {
       setScans(history);
       
       const queryId = searchParams.get("id");
@@ -94,7 +93,7 @@ function ReportsInner() {
         setActiveScanId(history[0].id);
         setActiveTab(firstTabFor(history[0]));
       }
-    }
+    }).catch(console.error);
   }, [router, searchParams]);
 
   if (!mounted) return null;

@@ -35,7 +35,7 @@ export function ScanRunner({ mode }: { mode: ScanMode }) {
   const stages = stagesForMode(mode);
 
   const {
-    scanning, scanComplete, error, activity, statuses, results, progressPct, start, reset,
+    scanning, scanComplete, error, activity, statuses, results, progressPct, scanId, start, reset,
   } = useScanRun(mode);
 
   const [target, setTarget] = useState("");
@@ -227,7 +227,7 @@ export function ScanRunner({ mode }: { mode: ScanMode }) {
 
           {scanComplete && (
             <div className="flex gap-4 pt-1">
-              <Button className="flex-1 font-semibold" onClick={() => router.push("/reports")}>
+              <Button className="flex-1 font-semibold" onClick={() => router.push(scanId ? `/reports?id=${scanId}` : "/reports")}>
                 <FileText className="mr-2 h-4 w-4" />View Report
               </Button>
               <Button

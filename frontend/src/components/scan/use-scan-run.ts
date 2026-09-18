@@ -110,6 +110,7 @@ export function useScanRun(mode: ScanMode) {
   const [activity, setActivity] = useState("");
   const [doneNodes, setDoneNodes] = useState<string[]>([]);
   const [results, setResults] = useState<Record<string, NodeResult>>({});
+  const [scanId, setScanId] = useState<string | null>(null);
 
   // Raw backend state per node, kept for reconstructing the final report payload.
   const rawStates = useRef<Record<string, any>>({});
@@ -150,6 +151,7 @@ export function useScanRun(mode: ScanMode) {
     setActivity("");
     setDoneNodes([]);
     setResults({});
+    setScanId(null);
     rawStates.current = {};
     triageAcc.current = { confirmed: 0, discarded: 0, done: 0, total: 0 };
   }, []);
@@ -165,6 +167,9 @@ export function useScanRun(mode: ScanMode) {
       const handleEvent = (data: any) => {
         if (data.event === "start" || data.event === "handoff" || data.event === "complete") {
           setActivity(data.message);
+          if (data.event === "complete" && data.scan_id) {
+            setScanId(data.scan_id);
+          }
           return;
         }
         if (data.event === "error") {
@@ -263,6 +268,7 @@ export function useScanRun(mode: ScanMode) {
     results,
     progressPct,
     report,
+    scanId,
     start,
     reset,
   };
@@ -303,18 +309,6 @@ function persistRun(mode: ScanMode, target: string, states: Record<string, any>)
   }
 
   try {
-    const record = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      url: target,
-      mode,
-      data,
-    };
-    const raw = localStorage.getItem("SecuraAI_scan_history");
-    const history = raw ? JSON.parse(raw) : [];
-    history.unshift(record);
-    localStorage.setItem("SecuraAI_scan_history", JSON.stringify(history));
-
     sessionStorage.setItem("SecuraAI_scan_result", JSON.stringify(data));
     sessionStorage.setItem("SecuraAI_scan_mode", mode);
     sessionStorage.setItem("SecuraAI_scan_url", target);
