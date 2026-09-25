@@ -338,8 +338,20 @@ async def _static_event_stream(
             db.commit()
 
         yield f"data: {json.dumps({'event': 'complete', 'message': 'Static Analysis Complete!', 'scan_id': str(scan.id)})}\n\n"
-    except Exception as e:
-        db.rollback()
+    except BaseException as e:
+        if 'static_accumulated' in locals() and static_accumulated.get("static_report"):
+            flow.status = "completed"
+            scan.status = "completed"
+            scan.finished_at = datetime.datetime.utcnow()
+            scan.raw_data = {"static_analysis_report": static_accumulated["static_report"]}
+            db.commit()
+        else:
+            db.rollback()
+            if 'flow' in locals() and flow and flow.status != "completed":
+                flow.status = "failed"
+            if 'scan' in locals() and scan and scan.status != "completed":
+                scan.status = "failed"
+            db.commit()
         traceback.print_exc()
         yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
     finally:
@@ -462,9 +474,15 @@ async def stream_recon(request: ScanRequest):
             db.commit()
 
             yield f"data: {json.dumps({'event': 'complete', 'message': 'Recon Flow Complete!', 'scan_id': str(scan.id)})}\n\n"
-        except Exception as e:
-            scan.status = "failed"
-            db.commit()
+        except BaseException as e:
+            if 'recon_accumulated' in locals() and recon_accumulated.get("surface_report"):
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                scan.raw_data = {"surface_report": recon_accumulated["surface_report"]}
+                db.commit()
+            elif scan.status == "running":
+                scan.status = "failed"
+                db.commit()
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
         finally:
             db.close()
@@ -538,8 +556,16 @@ async def stream_full_scan(request: ScanRequest):
             db.commit()
 
             yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!', 'scan_id': str(scan.id)})}\n\n"
-        except Exception as e:
-            if scan.status == "running":
+        except BaseException as e:
+            if 'audit_accumulated' in locals() and audit_accumulated.get("audit_report"):
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                scan.raw_data = {
+                    "surface_report": recon_accumulated.get("surface_report", {}),
+                    "header_audit_report": audit_accumulated["audit_report"]
+                }
+                db.commit()
+            elif scan.status == "running":
                 scan.status = "failed"
                 db.commit()
             import traceback
@@ -684,9 +710,9 @@ async def stream_injection_scan(request: InjectionScanRequest):
             db.commit()
 
             yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!', 'scan_id': str(scan.id)})}\n\n"
-        except Exception as e:
+        except BaseException as e:
             # If the network dropped during streaming, but we already accumulated the final report, save it anyway!
-            if injection_accumulated.get("injection_report"):
+            if 'injection_accumulated' in locals() and injection_accumulated.get("injection_report"):
                 scan.status = "completed"
                 scan.finished_at = datetime.datetime.utcnow()
                 raw_data = {"injection_report": injection_accumulated["injection_report"]}
