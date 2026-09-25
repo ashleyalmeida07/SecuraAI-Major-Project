@@ -235,7 +235,14 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.setItem("SecuraAI_scan_result", JSON.stringify(s));
       } catch { /* quota guard */ }
     } catch (err) {
-      patch(mode, { error: err instanceof Error ? err.message : "Scan failed. Is the backend running?" });
+      const lastNode = ids[ids.length - 1];
+      const isActuallyComplete = !!storeRef.current[mode].scanId || storeRef.current[mode].doneNodes.includes(lastNode);
+      if (isActuallyComplete) {
+        const finalDone = mode === "static" ? [...ids, "dispatch"] : [...ids];
+        patch(mode, { doneNodes: finalDone, scanComplete: true, activity: "Scan complete — (stream disconnected after success)." });
+      } else {
+        patch(mode, { error: err instanceof Error ? err.message : "Scan failed. Is the backend running?" });
+      }
     } finally {
       patch(mode, { scanning: false });
     }

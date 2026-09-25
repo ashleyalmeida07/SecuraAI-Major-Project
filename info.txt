@@ -10,3 +10,30 @@
 
 
  https://demo-target-psi.vercel.app/
+
+
+ Authenticated multi-role BOLA/IDOR testing.
+
+Why this one over the others: It's the #1 OWASP API vulnerability (Broken Object Level Authorization), it's exactly the class of bug "vibe-coded" apps get wrong constantly (AI-generated CRUD endpoints routinely forget to check "does this user actually own this resource"), and it's genuinely complex — multi-role session management, response diffing, not just a header check. This is a real capstone-level feature, not a quick add like CORS.
+
+Entry point: URL + credentials for 2 roles (a step up from your other URL-only flows — this is the first flow needing auth input)
+
+User provides login credentials or session tokens for two accounts: e.g. "User A" and "User B" (or "regular user" and "admin")
+Target URL as usual
+
+How the flow works:
+
+Authenticated crawl (reuses your Playwright infra) — log in as User A via Playwright, crawl and record every endpoint that returns object IDs (e.g. /api/orders/123, /api/users/45/profile), noting which IDs belong to User A's own data
+Second authenticated session as User B — log in as User B, get User B's own object IDs the same way
+Cross-request substitution (the actual test) — using User B's session/token, replay every request from step 1 but substitute User A's object IDs. If the server returns User A's data (200 OK with real content, not a 403/404), that's a confirmed IDOR
+Response diffing — compare response structure/content between "own ID" and "someone else's ID" requests to auto-detect leakage even when status codes look fine (some broken APIs return 200 with different but still-sensitive content)
+Triage node — same pattern as your other flows: confirmed leaks go to LLM for severity + explanation, false positives (correctly blocked) get filtered out
+
+Why this is the "complex" one specifically:
+
+Requires maintaining two authenticated sessions simultaneously (state most of your other flows don't need)
+Needs a session/credential input mechanism you don't have yet (secure short-lived credential handling — don't persist raw passwords, use session tokens where possible)
+The core logic is a genuine cross-referencing/diffing algorithm, not a checklist lookup
+Reuses your existing Playwright investment from Recon instead of requiring new tooling
+
+One design call to make upfront: decide whether credentials are entered per-scan (safer, more friction) or stored per-project (convenient, but now you're holding auth secrets — needs proper encryption at rest in NeonDB if you go this route).

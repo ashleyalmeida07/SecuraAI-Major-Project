@@ -539,8 +539,9 @@ async def stream_full_scan(request: ScanRequest):
 
             yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!', 'scan_id': str(scan.id)})}\n\n"
         except Exception as e:
-            scan.status = "failed"
-            db.commit()
+            if scan.status == "running":
+                scan.status = "failed"
+                db.commit()
             import traceback
             traceback.print_exc()
             yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
@@ -671,23 +672,31 @@ async def stream_injection_scan(request: InjectionScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
 
-            # Save raw data
+            # Attempt to save data and finish normally
             scan.status = "completed"
             scan.finished_at = datetime.datetime.utcnow()
-            
             raw_data = {
                 "injection_report": injection_accumulated.get("injection_report", {})
             }
             if not request.endpoints:
                 raw_data["surface_report"] = recon_accumulated.get("surface_report", {})
-            
             scan.raw_data = raw_data
             db.commit()
 
             yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!', 'scan_id': str(scan.id)})}\n\n"
         except Exception as e:
-            scan.status = "failed"
-            db.commit()
+            # If the network dropped during streaming, but we already accumulated the final report, save it anyway!
+            if injection_accumulated.get("injection_report"):
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                raw_data = {"injection_report": injection_accumulated["injection_report"]}
+                if not request.endpoints:
+                    raw_data["surface_report"] = recon_accumulated.get("surface_report", {})
+                scan.raw_data = raw_data
+                db.commit()
+            elif scan.status == "running":
+                scan.status = "failed"
+                db.commit()
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
         finally:
             db.close()
