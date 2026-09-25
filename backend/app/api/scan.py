@@ -294,20 +294,19 @@ async def _static_event_stream(
     results render while CodeQL is still building its database. ``cleanup`` (if
     given) is invoked once the stream ends, for temp-dir removal after an upload.
     """
-    db = SessionLocal()
-    try:
-        yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Static Analysis Flow...'})}\n\n"
-
-        # Create Scan + FlowRun records
+    with SessionLocal() as db:
         scan = Scan(target=target_path, scan_type="static")
         db.add(scan)
         db.commit()
-        db.refresh(scan)
+        scan_id = scan.id
 
         flow = FlowRun(scan_id=scan.id, flow_name="static_analysis")
         db.add(flow)
         db.commit()
-        db.refresh(flow)
+        flow_id = flow.id
+
+    try:
+        yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Static Analysis Flow...'})}\n\n"
 
         static_accumulated: dict = {}
         async for chunk in static_analysis_graph.astream(
@@ -328,34 +327,38 @@ async def _static_event_stream(
                 yield f"data: {json.dumps(event_data, default=str)}\n\n"
                 await asyncio.sleep(0.05)
 
-        if flow.status != "completed":
-            flow.status = "completed"
-            scan.status = "completed"
-            scan.finished_at = datetime.datetime.utcnow()
-            scan.raw_data = {
-                "static_analysis_report": static_accumulated.get("static_report", {})
-            }
-            db.commit()
+        with SessionLocal() as db:
+            scan = db.query(Scan).get(scan_id)
+            flow = db.query(FlowRun).get(flow_id)
+            if flow.status != "completed":
+                flow.status = "completed"
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                scan.raw_data = {
+                    "static_analysis_report": static_accumulated.get("static_report", {})
+                }
+                db.commit()
 
-        yield f"data: {json.dumps({'event': 'complete', 'message': 'Static Analysis Complete!', 'scan_id': str(scan.id)})}\n\n"
+        yield f"data: {json.dumps({'event': 'complete', 'message': 'Static Analysis Complete!', 'scan_id': str(scan_id)})}\n\n"
     except BaseException as e:
-        if 'static_accumulated' in locals() and static_accumulated.get("static_report"):
-            flow.status = "completed"
-            scan.status = "completed"
-            scan.finished_at = datetime.datetime.utcnow()
-            scan.raw_data = {"static_analysis_report": static_accumulated["static_report"]}
-            db.commit()
-        else:
-            db.rollback()
-            if 'flow' in locals() and flow and flow.status != "completed":
-                flow.status = "failed"
-            if 'scan' in locals() and scan and scan.status != "completed":
-                scan.status = "failed"
-            db.commit()
+        with SessionLocal() as db:
+            scan = db.query(Scan).get(scan_id)
+            flow = db.query(FlowRun).get(flow_id)
+            if 'static_accumulated' in locals() and static_accumulated.get("static_report"):
+                flow.status = "completed"
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                scan.raw_data = {"static_analysis_report": static_accumulated["static_report"]}
+                db.commit()
+            else:
+                if flow and flow.status != "completed":
+                    flow.status = "failed"
+                if scan and scan.status != "completed":
+                    scan.status = "failed"
+                db.commit()
         traceback.print_exc()
         yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
     finally:
-        db.close()
         if cleanup is not None:
             try:
                 cleanup()
@@ -437,12 +440,13 @@ async def stream_recon(request: ScanRequest):
     """Stream Flow 1: Recon & Surface Mapping using SSE."""
     
     async def event_generator():
-        db = SessionLocal()
-        scan = Scan(target=request.url, scan_type="recon", status="running")
-        try:
+        with SessionLocal() as db:
+            scan = Scan(target=request.url, scan_type="recon", status="running")
             db.add(scan)
             db.commit()
-            db.refresh(scan)
+            scan_id = scan.id
+
+        try:
 
             yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Recon Flow...'})}\n\n"
             
@@ -465,27 +469,28 @@ async def stream_recon(request: ScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
             
-            # Save raw data
-            scan.status = "completed"
-            scan.finished_at = datetime.datetime.utcnow()
-            scan.raw_data = {
-                "surface_report": recon_accumulated.get("surface_report", {})
-            }
-            db.commit()
-
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'Recon Flow Complete!', 'scan_id': str(scan.id)})}\n\n"
-        except BaseException as e:
-            if 'recon_accumulated' in locals() and recon_accumulated.get("surface_report"):
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
                 scan.status = "completed"
                 scan.finished_at = datetime.datetime.utcnow()
-                scan.raw_data = {"surface_report": recon_accumulated["surface_report"]}
+                scan.raw_data = {
+                    "surface_report": recon_accumulated.get("surface_report", {})
+                }
                 db.commit()
-            elif scan.status == "running":
-                scan.status = "failed"
-                db.commit()
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Recon Flow Complete!', 'scan_id': str(scan_id)})}\n\n"
+        except BaseException as e:
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                if 'recon_accumulated' in locals() and recon_accumulated.get("surface_report"):
+                    scan.status = "completed"
+                    scan.finished_at = datetime.datetime.utcnow()
+                    scan.raw_data = {"surface_report": recon_accumulated["surface_report"]}
+                    db.commit()
+                elif scan.status == "running":
+                    scan.status = "failed"
+                    db.commit()
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
-        finally:
-            db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -495,13 +500,13 @@ async def stream_full_scan(request: ScanRequest):
     """Stream Flow 1 (Recon) -> Flow 2 (Header Audit) using SSE."""
     
     async def event_generator():
-        db = SessionLocal()
-        scan = Scan(target=request.url, scan_type="full", status="running")
-        try:
+        with SessionLocal() as db:
+            scan = Scan(target=request.url, scan_type="full", status="running")
             db.add(scan)
             db.commit()
-            db.refresh(scan)
+            scan_id = scan.id
 
+        try:
             yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Full Scan Flow...'})}\n\n"
 
             recon_accumulated: dict = {}
@@ -546,33 +551,34 @@ async def stream_full_scan(request: ScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
 
-            # Save raw data
-            scan.status = "completed"
-            scan.finished_at = datetime.datetime.utcnow()
-            scan.raw_data = {
-                "surface_report": recon_accumulated.get("surface_report", {}),
-                "header_audit_report": audit_accumulated.get("audit_report", {})
-            }
-            db.commit()
-
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!', 'scan_id': str(scan.id)})}\n\n"
-        except BaseException as e:
-            if 'audit_accumulated' in locals() and audit_accumulated.get("audit_report"):
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
                 scan.status = "completed"
                 scan.finished_at = datetime.datetime.utcnow()
                 scan.raw_data = {
                     "surface_report": recon_accumulated.get("surface_report", {}),
-                    "header_audit_report": audit_accumulated["audit_report"]
+                    "header_audit_report": audit_accumulated.get("audit_report", {})
                 }
                 db.commit()
-            elif scan.status == "running":
-                scan.status = "failed"
-                db.commit()
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Full Scan Complete!', 'scan_id': str(scan_id)})}\n\n"
+        except BaseException as e:
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                if 'audit_accumulated' in locals() and audit_accumulated.get("audit_report"):
+                    scan.status = "completed"
+                    scan.finished_at = datetime.datetime.utcnow()
+                    scan.raw_data = {
+                        "surface_report": recon_accumulated.get("surface_report", {}),
+                        "header_audit_report": audit_accumulated["audit_report"]
+                    }
+                    db.commit()
+                elif scan.status == "running":
+                    scan.status = "failed"
+                    db.commit()
             import traceback
             traceback.print_exc()
             yield f"data: {json.dumps({'event': 'error', 'message': repr(e)})}\n\n"
-        finally:
-            db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -632,13 +638,13 @@ async def stream_injection_scan(request: InjectionScanRequest):
     """
 
     async def event_generator():
-        db = SessionLocal()
-        scan = Scan(target=request.url, scan_type="injection", status="running")
-        try:
+        with SessionLocal() as db:
+            scan = Scan(target=request.url, scan_type="injection", status="running")
             db.add(scan)
             db.commit()
-            db.refresh(scan)
+            scan_id = scan.id
 
+        try:
             yield f"data: {json.dumps({'event': 'start', 'message': 'Starting Injection Testing Flow...'})}\n\n"
 
             endpoints = request.endpoints
@@ -698,34 +704,34 @@ async def stream_injection_scan(request: InjectionScanRequest):
                     yield f"data: {json.dumps(event_data)}\n\n"
                     await asyncio.sleep(0.1)
 
-            # Attempt to save data and finish normally
-            scan.status = "completed"
-            scan.finished_at = datetime.datetime.utcnow()
-            raw_data = {
-                "injection_report": injection_accumulated.get("injection_report", {})
-            }
-            if not request.endpoints:
-                raw_data["surface_report"] = recon_accumulated.get("surface_report", {})
-            scan.raw_data = raw_data
-            db.commit()
-
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!', 'scan_id': str(scan.id)})}\n\n"
-        except BaseException as e:
-            # If the network dropped during streaming, but we already accumulated the final report, save it anyway!
-            if 'injection_accumulated' in locals() and injection_accumulated.get("injection_report"):
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
                 scan.status = "completed"
                 scan.finished_at = datetime.datetime.utcnow()
-                raw_data = {"injection_report": injection_accumulated["injection_report"]}
+                raw_data = {
+                    "injection_report": injection_accumulated.get("injection_report", {})
+                }
                 if not request.endpoints:
                     raw_data["surface_report"] = recon_accumulated.get("surface_report", {})
                 scan.raw_data = raw_data
                 db.commit()
-            elif scan.status == "running":
-                scan.status = "failed"
-                db.commit()
+
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'Injection Testing Complete!', 'scan_id': str(scan_id)})}\n\n"
+        except BaseException as e:
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                if 'injection_accumulated' in locals() and injection_accumulated.get("injection_report"):
+                    scan.status = "completed"
+                    scan.finished_at = datetime.datetime.utcnow()
+                    raw_data = {"injection_report": injection_accumulated["injection_report"]}
+                    if not request.endpoints:
+                        raw_data["surface_report"] = recon_accumulated.get("surface_report", {})
+                    scan.raw_data = raw_data
+                    db.commit()
+                elif scan.status == "running":
+                    scan.status = "failed"
+                    db.commit()
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
-        finally:
-            db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
