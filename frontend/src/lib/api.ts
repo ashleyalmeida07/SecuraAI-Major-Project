@@ -4,6 +4,13 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("token");
+  if (!token || token === "null" || token === "undefined") return {};
+  return { "Authorization": `Bearer ${token}` };
+}
+
 export interface ScanRequest {
   url: string;
   max_depth?: number;
@@ -253,8 +260,17 @@ export interface ScanHistoryItem {
 export type ScanData = FullScanResponse | ReconResponse | { injection_report?: InjectionReport; surface_report?: SurfaceReport } | { static_analysis_report?: StaticAnalysisReport };
 
 export async function getScanHistory(): Promise<ScanHistoryItem[]> {
-  const response = await fetch(`${API_BASE}/scan/history`);
+  const response = await fetch(`${API_BASE}/scan/history`, {
+    headers: { ...getAuthHeaders() }
+  });
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+        return new Promise(() => {}); // wait indefinitely for redirect
+      }
+    }
     throw new Error(`History fetch failed: ${response.statusText}`);
   }
   const data = await response.json();
@@ -321,7 +337,7 @@ export interface StaticScanRequest {
 export async function scanRecon(request: ScanRequest): Promise<ReconResponse> {
   const res = await fetch(`${API_BASE}/scan/recon`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(request),
   });
   if (!res.ok) throw new Error(`Recon scan failed: ${res.statusText}`);
@@ -332,7 +348,7 @@ export async function scanRecon(request: ScanRequest): Promise<ReconResponse> {
 export async function scanFull(request: ScanRequest): Promise<FullScanResponse> {
   const res = await fetch(`${API_BASE}/scan/full`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(request),
   });
   if (!res.ok) throw new Error(`Full scan failed: ${res.statusText}`);
@@ -349,7 +365,7 @@ export async function scanReconStream(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/scan/stream/recon`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(request),
   });
 
@@ -395,7 +411,7 @@ export async function scanFullStream(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/scan/stream/full`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(request),
   });
 
@@ -442,7 +458,7 @@ export async function scanStaticStream(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/scan/stream/static`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(request),
   });
 
@@ -487,7 +503,7 @@ export async function scanInjectionStream(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/scan/stream/injection`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(request),
   });
 

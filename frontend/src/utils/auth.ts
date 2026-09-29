@@ -41,7 +41,9 @@ export function logout() {
 
 export function getToken() {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    if (token === "null" || token === "undefined") return null;
+    return token;
   }
   return null;
 }

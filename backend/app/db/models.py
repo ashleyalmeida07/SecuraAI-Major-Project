@@ -22,6 +22,9 @@ class Scan(Base):
     started_at = Column(DateTime, default=datetime.datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
     raw_data = Column(JSON, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    user = relationship("User", backref="scans")
 
     flow_runs = relationship("FlowRun", back_populates="scan")
     findings = relationship("Finding", back_populates="scan")

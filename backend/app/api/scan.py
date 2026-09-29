@@ -6,7 +6,7 @@ Endpoints:
     POST /scan/full      — Run Flow 1 → Flow 2 chained (full pipeline).
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import StreamingResponse
 import json
 import asyncio
@@ -22,7 +22,8 @@ from app.agents.static_analysis.graph import static_analysis_graph, triage_recur
 from app.agents.static_analysis.tools import cleanup_clone
 from app.agents.injection.graph import injection_graph
 from app.db.session import SessionLocal
-from app.db.models import Scan, FlowRun
+from app.db.models import Scan, FlowRun, User
+from app.api.deps import get_current_user
 
 scan_router = APIRouter(prefix="/scan", tags=["scan"])
 
@@ -285,6 +286,7 @@ async def _static_event_stream(
     include_codeql: bool,
     codeql_language: str,
     max_triage: int,
+    user_id: int,
     cleanup=None,
 ):
     """Shared SSE generator for the JSON and upload static-analysis endpoints.
@@ -295,7 +297,7 @@ async def _static_event_stream(
     given) is invoked once the stream ends, for temp-dir removal after an upload.
     """
     with SessionLocal() as db:
-        scan = Scan(target=target_path, scan_type="static")
+        scan = Scan(target=target_path, scan_type="static", user_id=user_id)
         db.add(scan)
         db.commit()
         scan_id = scan.id
@@ -311,7 +313,7 @@ async def _static_event_stream(
         static_accumulated: dict = {}
         async for chunk in static_analysis_graph.astream(
             _static_initial_state(
-                target_path, include_codeql, codeql_language, max_triage, scan.id, flow.id
+                target_path, include_codeql, codeql_language, max_triage, scan_id, flow_id
             ),
             config={"recursion_limit": triage_recursion_limit(max_triage)},
         ):
@@ -367,7 +369,7 @@ async def _static_event_stream(
 
 
 @scan_router.post("/stream/static")
-async def stream_static_analysis(request: StaticScanRequest):
+async def stream_static_analysis(request: StaticScanRequest, current_user: User = Depends(get_current_user)):
     """Stream the Static Analysis flow via SSE.
 
     ``target_path`` is a Git URL / ``owner/repo`` shorthand (the backend clones
@@ -380,6 +382,7 @@ async def stream_static_analysis(request: StaticScanRequest):
             request.include_codeql,
             request.codeql_language,
             request.max_triage,
+            current_user.id,
         ),
         media_type="text/event-stream",
     )
@@ -391,6 +394,7 @@ async def stream_static_analysis_upload(
     include_codeql: bool = Form(True),
     codeql_language: str = Form(""),
     max_triage: int = Form(25),
+    current_user: User = Depends(get_current_user),
 ):
     """Stream the Static Analysis flow over an uploaded ``.tar.gz`` of the code.
 
@@ -429,6 +433,7 @@ async def stream_static_analysis_upload(
             include_codeql,
             codeql_language,
             max_triage,
+            current_user.id,
             cleanup=lambda: cleanup_clone(workdir),
         ),
         media_type="text/event-stream",
@@ -436,12 +441,12 @@ async def stream_static_analysis_upload(
 
 
 @scan_router.post("/stream/recon")
-async def stream_recon(request: ScanRequest):
+async def stream_recon(request: ScanRequest, current_user: User = Depends(get_current_user)):
     """Stream Flow 1: Recon & Surface Mapping using SSE."""
     
     async def event_generator():
         with SessionLocal() as db:
-            scan = Scan(target=request.url, scan_type="recon", status="running")
+            scan = Scan(target=request.url, scan_type="recon", status="running", user_id=current_user.id)
             db.add(scan)
             db.commit()
             scan_id = scan.id
@@ -496,12 +501,12 @@ async def stream_recon(request: ScanRequest):
 
 
 @scan_router.post("/stream/full")
-async def stream_full_scan(request: ScanRequest):
+async def stream_full_scan(request: ScanRequest, current_user: User = Depends(get_current_user)):
     """Stream Flow 1 (Recon) -> Flow 2 (Header Audit) using SSE."""
     
     async def event_generator():
         with SessionLocal() as db:
-            scan = Scan(target=request.url, scan_type="full", status="running")
+            scan = Scan(target=request.url, scan_type="full", status="running", user_id=current_user.id)
             db.add(scan)
             db.commit()
             scan_id = scan.id
@@ -630,7 +635,7 @@ async def run_injection_scan(request: InjectionScanRequest):
 
 
 @scan_router.post("/stream/injection")
-async def stream_injection_scan(request: InjectionScanRequest):
+async def stream_injection_scan(request: InjectionScanRequest, current_user: User = Depends(get_current_user)):
     """Stream Flow 3: Injection Testing using SSE.
     
     Optionally runs Recon first if no endpoints are provided,
@@ -639,7 +644,7 @@ async def stream_injection_scan(request: InjectionScanRequest):
 
     async def event_generator():
         with SessionLocal() as db:
-            scan = Scan(target=request.url, scan_type="injection", status="running")
+            scan = Scan(target=request.url, scan_type="injection", status="running", user_id=current_user.id)
             db.add(scan)
             db.commit()
             scan_id = scan.id
@@ -737,11 +742,15 @@ async def stream_injection_scan(request: InjectionScanRequest):
 
 
 @scan_router.get("/history")
-async def get_scan_history():
+async def get_scan_history(current_user: User = Depends(get_current_user)):
     """Fetch all completed scan reports for the dashboard."""
     db = SessionLocal()
     try:
-        scans = db.query(Scan).filter(Scan.status == "completed", Scan.raw_data.isnot(None)).order_by(Scan.started_at.desc()).all()
+        scans = db.query(Scan).filter(
+            Scan.status == "completed", 
+            Scan.raw_data.isnot(None),
+            Scan.user_id == current_user.id
+        ).order_by(Scan.started_at.desc()).all()
         history = []
         for s in scans:
             history.append({
