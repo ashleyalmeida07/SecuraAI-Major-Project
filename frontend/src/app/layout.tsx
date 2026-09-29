@@ -23,6 +23,9 @@ export default function RootLayout({
           href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap"
           rel="stylesheet"
         />
+        {/* SecuraAI favicon */}
+        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <link rel="apple-touch-icon" href="/logo.svg" />
       </head>
       <body style={{ background: '#0a0a0a', color: '#fff', fontFamily: '"Satoshi", sans-serif', margin: 0, padding: 0 }}>
         <ScanProvider>

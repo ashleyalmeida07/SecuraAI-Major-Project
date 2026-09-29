@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Dark background -->
+  <rect width="32" height="32" rx="8" fill="#0d0d0f"/>
+
+  <!-- The SecuraAI logo mark — 4 arrow pairs rotated 90° each -->
+  <path d="M16 2v10" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M10 7l6 6 6-6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M16 2v10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" transform="rotate(90 16 16)"/>
+  <path d="M10 7l6 6 6-6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="rotate(90 16 16)"/>
+
+  <path d="M16 2v10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" transform="rotate(180 16 16)"/>
+  <path d="M10 7l6 6 6-6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="rotate(180 16 16)"/>
+
+  <path d="M16 2v10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" transform="rotate(270 16 16)"/>
+  <path d="M10 7l6 6 6-6" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="rotate(270 16 16)"/>
+</svg>

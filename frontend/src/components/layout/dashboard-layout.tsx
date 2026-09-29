@@ -5,7 +5,7 @@ import {
   Search, LayoutDashboard, Shield, Globe, FileText,
   LogOut, ChevronDown, ChevronRight,
   Activity, PanelLeftClose, PanelLeftOpen,
-  Command, X, Zap, Bell, PieChart, ShieldCheck
+  Command, X, Zap, Bell, ShieldCheck
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -32,7 +32,6 @@ const navGroups: NavGroupData[] = [
     items: [
       { id: 'search',    title: 'Search',      icon: Search,          shortcut: '⌘K' },
       { id: 'dashboard', title: 'Dashboard',   icon: LayoutDashboard, href: '/dashboard' },
-      { id: 'analytics', title: 'Analytics',   icon: PieChart,        href: '/analytics' },
       { id: 'activity',  title: 'Recent Scans',icon: Activity,        href: '/recent' },
     ],
   },
