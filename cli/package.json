@@ -1,10 +1,11 @@
 {
   "name": "@authtrack/secura",
-  "version": "0.1.0",
-  "description": "AuthTrack static analysis (SAST) from the command line — streams a five-scanner scan (Semgrep, Bearer, OSV-Scanner, Gitleaks, CodeQL) from the AuthTrack backend and renders it live in your terminal.",
+  "version": "0.1.1",
+  "description": "SecuraAI security scanner CLI and MCP server — static analysis, recon, header audit and injection testing via AI agents.",
   "type": "module",
   "bin": {
-    "secura": "bin/secura.mjs"
+    "secura": "bin/secura.mjs",
+    "secura-mcp": "bin/secura-mcp.mjs"
   },
   "engines": {
     "node": ">=18"
@@ -14,6 +15,9 @@
     "src",
     "README.md"
   ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
   "keywords": [
     "sast",
     "static-analysis",
@@ -25,7 +29,10 @@
     "bearer",
     "cli",
     "vulnerability",
-    "authtrack"
+    "mcp",
+    "model-context-protocol",
+    "securai",
+    "securaai"
   ],
   "repository": {
     "type": "git",
@@ -41,6 +48,7 @@
     "access": "public"
   },
   "scripts": {
-    "secura": "node bin/secura.mjs"
+    "secura": "node bin/secura.mjs",
+    "secura-mcp": "node bin/secura-mcp.mjs"
   }
 }

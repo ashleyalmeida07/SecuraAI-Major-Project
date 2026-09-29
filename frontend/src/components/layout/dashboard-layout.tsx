@@ -5,7 +5,7 @@ import {
   Search, LayoutDashboard, Shield, Globe, FileText,
   LogOut, ChevronDown, ChevronRight,
   Activity, PanelLeftClose, PanelLeftOpen,
-  Command, X, Zap, Bell, ShieldCheck
+  Command, X, Zap, Bell, ShieldCheck, Cpu
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -42,7 +42,8 @@ const navGroups: NavGroupData[] = [
       { id: 'scan-recon',     title: 'Recon',           icon: Globe,       href: '/scan/recon' },
       { id: 'scan-headers',   title: 'Header Audit',    icon: ShieldCheck, href: '/scan/full' },
       { id: 'scan-injection', title: 'Injection Test',  icon: Zap,         href: '/scan/injection' },
-      { id: 'reports',  title: 'Reports',       icon: FileText, href: '/reports' },
+      { id: 'reports',        title: 'Reports',         icon: FileText,    href: '/reports' },
+      { id: 'mcp',            title: 'MCP Integration', icon: Cpu,         href: '/mcp' },
     ],
   },
 ];

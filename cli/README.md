@@ -128,7 +128,79 @@ working if auth is added later.
 
 ---
 
-## Publishing (maintainers)
+## MCP Server (`secura-mcp`)
+
+After `npm install -g @authtrack/secura`, a second command `secura-mcp` is also installed.
+**You never run it yourself** — your AI editor runs it automatically as a background subprocess
+and exposes its tools to the AI assistant.
+
+### Tools exposed
+
+| Tool | What it does |
+|------|-------------|
+| `run_static_scan` | SAST — Semgrep, Bearer, OSV-Scanner, Gitleaks, CodeQL + AI triage |
+| `run_recon` | Surface mapping — crawl & classify endpoints |
+| `run_header_audit` | OWASP security-header & cookie audit |
+
+### Claude Code setup
+
+Create or edit `~/.claude/claude_desktop_config.json` (or the path shown in Claude's settings):
+
+```json
+{
+  "mcpServers": {
+    "secura": {
+      "command": "secura-mcp",
+      "env": {
+        "SECURA_API": "http://localhost:8000/api/v1",
+        "SECURA_TOKEN": "<your-jwt-if-needed>"
+      }
+    }
+  }
+}
+```
+
+### Cursor setup
+
+Open **Cursor → Settings → Features → MCP** and add:
+
+```json
+{
+  "secura": {
+    "command": "secura-mcp",
+    "env": {
+      "SECURA_API": "http://localhost:8000/api/v1",
+      "SECURA_TOKEN": "<your-jwt-if-needed>"
+    }
+  }
+}
+```
+
+### Usage (after setup)
+
+Just talk to your AI assistant as normal — it will automatically call the tools when relevant:
+
+```
+"Check this repo for vulnerabilities"
+→ AI calls run_static_scan({ target_path: "." })
+
+"Map the attack surface of https://example.com"
+→ AI calls run_recon({ url: "https://example.com" })
+
+"Audit the security headers on my staging server"
+→ AI calls run_header_audit({ url: "https://staging.example.com" })
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECURA_API` | `https://securaai-major-project.onrender.com/api/v1` | Backend base URL |
+| `SECURA_TOKEN` | _(empty)_ | Bearer token for authenticated backends |
+
+---
+
+
 
 This package publishes from the `cli/` directory of the AuthTrack repo. It is
 plain ESM with no build step, so publishing is just:
@@ -142,15 +214,15 @@ npm publish --access public   # scoped packages need --access public on first pu
 
 Notes:
 
-- **Scope.** The name `@authtrack/secura` requires the `@authtrack` org to exist
+- **Scope.** The name `@authtrack/secura` requires the `@SecuraAI` org to exist
   on npm and your account to be a member. Create it at
   <https://www.npmjs.com/org/create>, or rename the package to an unscoped name
-  you own (e.g. `authtrack-secura`) in `package.json` — the `bin` stays `secura`
+  you own (e.g. `securai-secura`) in `package.json` — the `bin` stays `secura`
   either way, so `secura scan …` is unchanged for users.
 - **What ships.** Only `bin/`, `src/` and `README.md` (the `files` allowlist).
   Verify with `npm pack --dry-run` before publishing.
 - **Smoke test the tarball.** `npm pack` then
-  `npm i -g ./authtrack-secura-<version>.tgz` and run `secura --help`.
+  `npm i -g ./securai-secura-<version>.tgz` and run `secura --help`.
 
 ## License
 
