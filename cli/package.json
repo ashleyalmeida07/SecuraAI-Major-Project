@@ -1,6 +1,6 @@
 {
   "name": "@authtrack/secura",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SecuraAI security scanner CLI and MCP server — static analysis, recon, header audit and injection testing via AI agents.",
   "type": "module",
   "bin": {

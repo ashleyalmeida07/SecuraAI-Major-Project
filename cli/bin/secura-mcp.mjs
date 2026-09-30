@@ -409,4 +409,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+// Print to stderr (not stdout — stdout is the MCP protocol wire)
+process.stderr.write([
+  "",
+  "  ╔══════════════════════════════════════════════╗",
+  "  ║        SecuraAI MCP Server  v0.1.1           ║",
+  "  ║  Listening for MCP messages on stdin…        ║",
+  "  ╚══════════════════════════════════════════════╝",
+  "",
+  "  ✓ 3 tools available:  run_static_scan · run_recon · run_header_audit",
+  `  ✓ Backend: ${resolveConfig().api}`,
+  "",
+  "  NOTE: You don't run this manually.",
+  "  Add it to your editor's MCP config and restart the editor.",
+  "  The editor will spawn this process automatically.",
+  "",
+  "  Press Ctrl+C to exit.",
+  "",
+].join("\n"));
 // Server runs until the editor closes stdin.

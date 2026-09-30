@@ -36,7 +36,7 @@ function CodeBlock({ code, lang = "json" }: { code: string; lang?: string }) {
         <span className="text-[11px] font-mono text-muted-foreground">{lang}</span>
         <CopyButton text={code} />
       </div>
-      <pre className="p-4 text-[13px] font-mono text-green-400 overflow-x-auto leading-relaxed whitespace-pre">
+      <pre className="p-4 text-[13px] font-mono overflow-x-auto leading-relaxed whitespace-pre" style={{ color: "#c9d1d9" }}>
         {code}
       </pre>
     </div>
@@ -111,6 +111,31 @@ const LOCAL_CONFIG = `{
     "secura": {
       "command": "node",
       "args": ["/path/to/SecuraAI/cli/bin/secura-mcp.mjs"],
+      "env": {
+        "SECURA_API": "http://localhost:8000/api/v1"
+      }
+    }
+  }
+}`;
+
+const VSCODE_CONFIG = `{
+  "mcp": {
+    "servers": {
+      "secura": {
+        "type": "stdio",
+        "command": "secura-mcp",
+        "env": {
+          "SECURA_API": "http://localhost:8000/api/v1"
+        }
+      }
+    }
+  }
+}`;
+
+const AGY_CONFIG = `{
+  "mcpServers": {
+    "secura": {
+      "command": "secura-mcp",
       "env": {
         "SECURA_API": "http://localhost:8000/api/v1"
       }
@@ -238,6 +263,22 @@ export default function McpPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">Settings → Features → MCP → add:</p>
                   <CodeBlock code={CURSOR_CONFIG} lang="json" />
+                </div>
+                {/* VS Code */}
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#0078d4]" /> VS Code
+                  </div>
+                  <p className="text-xs text-muted-foreground">Add to <code className="font-mono px-1 py-0.5 rounded bg-white/[0.07]">.vscode/mcp.json</code> or User Settings:</p>
+                  <CodeBlock code={VSCODE_CONFIG} lang="json" />
+                </div>
+                {/* Antigravity */}
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#a484d7]" /> Antigravity (AGY)
+                  </div>
+                  <p className="text-xs text-muted-foreground">Edit <code className="font-mono px-1 py-0.5 rounded bg-white/[0.07]">~/.gemini/config/mcp_config.json</code>:</p>
+                  <CodeBlock code={AGY_CONFIG} lang="json" />
                 </div>
               </div>
             </div>
