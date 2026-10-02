@@ -587,6 +587,7 @@ async def report_builder_node(state: InjectionState) -> dict:
     if confirmed:
         llm = get_llm()
         try:
+            import asyncio
             findings_text = json.dumps(confirmed[:10], indent=2)  # cap to avoid token overflow
             prompt = f"""You are a senior security auditor. Write a 3-4 sentence executive summary for this injection test report.
 
@@ -606,11 +607,12 @@ Write a professional, actionable summary focusing on:
 
 Summary (plain text, no markdown):"""
 
-            response = await llm.ainvoke(prompt)
+            # 20-second timeout — never block the report for a slow LLM
+            response = await asyncio.wait_for(llm.ainvoke(prompt), timeout=20.0)
             summary = response.content.strip()
         except Exception:
             pass  # keep the fallback summary
-    elif not confirmed:
+    else:
         summary += "No injection vulnerabilities were confirmed. The tested endpoints appear resilient to standard injection payloads."
 
     report = {
