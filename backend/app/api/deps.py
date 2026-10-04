@@ -23,10 +23,7 @@ def _stub_cli_user() -> User:
     """Return a lightweight User object for unauthenticated CLI/MCP requests.
     This never touches the database, so it works even when Neon is slow or
     the connection pool is stale."""
-    stub = User.__new__(User)
-    stub.id = CLI_DEFAULT_USER_ID
-    stub.email = "cli@secura.local"
-    stub.is_active = True
+    stub = User(id=CLI_DEFAULT_USER_ID, email="cli@secura.local", is_active=True)
     return stub
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
