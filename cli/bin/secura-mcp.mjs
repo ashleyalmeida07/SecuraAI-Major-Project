@@ -30,7 +30,7 @@
  *   }
  */
 
-import { Server }            from "@modelcontextprotocol/sdk/server/index.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
@@ -39,11 +39,11 @@ import {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const DEFAULT_API = "https://securaai-major-project.onrender.com/api/v1";
+const DEFAULT_API = "http://52.91.8.40/api/v1";
 
 function resolveConfig() {
-  const api   = (process.env.SECURA_API   || DEFAULT_API).replace(/\/+$/, "");
-  const token = process.env.SECURA_TOKEN  || "";
+  const api = (process.env.SECURA_API || DEFAULT_API).replace(/\/+$/, "");
+  const token = process.env.SECURA_TOKEN || "";
   return { api, token };
 }
 
@@ -57,8 +57,8 @@ function authHeaders(token, extra = {}) {
 
 async function* readSse(res) {
   const decoder = new TextDecoder();
-  const reader  = res.body.getReader();
-  let buffer    = "";
+  const reader = res.body.getReader();
+  let buffer = "";
 
   const emit = function* (frame) {
     for (const line of frame.split("\n")) {
@@ -89,7 +89,7 @@ async function drainStream(url, token, headers, body) {
   let res;
   try {
     res = await fetch(url, {
-      method:  "POST",
+      method: "POST",
       headers: authHeaders(token, headers),
       body,
     });
@@ -103,8 +103,8 @@ async function drainStream(url, token, headers, body) {
   }
 
   const accumulated = {};
-  let   scanId      = null;
-  let   lastError   = null;
+  let scanId = null;
+  let lastError = null;
 
   for await (const evt of readSse(res)) {
     if (evt.event === "node_update" && evt.state) {
@@ -127,10 +127,10 @@ async function drainStream(url, token, headers, body) {
 async function runStaticScan(args) {
   const { api, token } = resolveConfig();
   const body = JSON.stringify({
-    target_path:     args.target_path,
-    include_codeql:  args.include_codeql  ?? true,
+    target_path: args.target_path,
+    include_codeql: args.include_codeql ?? true,
     codeql_language: args.codeql_language ?? "",
-    max_triage:      args.max_triage      ?? 25,
+    max_triage: args.max_triage ?? 25,
   });
 
   const { finalState, scanId, error } = await drainStream(
@@ -148,7 +148,7 @@ async function runStaticScan(args) {
 async function runRecon(args) {
   const { api, token } = resolveConfig();
   const body = JSON.stringify({
-    url:       args.url,
+    url: args.url,
     max_depth: args.max_depth ?? 2,
     max_pages: args.max_pages ?? 30,
   });
@@ -160,7 +160,7 @@ async function runRecon(args) {
 
   if (error) throw new Error(error);
 
-  const report    = finalState.surface_report ?? {};
+  const report = finalState.surface_report ?? {};
   const endpoints = finalState.classified_endpoints ?? report.endpoints ?? [];
   return formatReconReport(report, endpoints, scanId);
 }
@@ -169,7 +169,7 @@ async function runRecon(args) {
 async function runHeaderAudit(args) {
   const { api, token } = resolveConfig();
   const body = JSON.stringify({
-    url:       args.url,
+    url: args.url,
     max_depth: args.max_depth ?? 2,
     max_pages: args.max_pages ?? 30,
   });
@@ -181,8 +181,8 @@ async function runHeaderAudit(args) {
 
   if (error) throw new Error(error);
 
-  const auditReport   = finalState.audit_report   ?? {};
-  const surfaceReport = finalState.surface_report  ?? {};
+  const auditReport = finalState.audit_report ?? {};
+  const surfaceReport = finalState.surface_report ?? {};
   return formatHeaderReport(auditReport, surfaceReport, scanId);
 }
 
@@ -212,10 +212,10 @@ function formatStaticReport(report, scanId) {
   if (confirmed.length > 0) {
     lines.push("### Confirmed Vulnerabilities", "");
     confirmed.slice(0, 20).forEach((f, i) => {
-      const sev      = (f.final_severity || f.severity || "info").toUpperCase();
-      const evidence = f.taint_path      ? "taint path"
-                     : f.multi_tool_confirmed ? "multi-tool"
-                     : "single tool";
+      const sev = (f.final_severity || f.severity || "info").toUpperCase();
+      const evidence = f.taint_path ? "taint path"
+        : f.multi_tool_confirmed ? "multi-tool"
+          : "single tool";
       lines.push(
         `**${i + 1}. [${sev}] ${f.category ?? f.rule_id}**`,
         `- File: \`${f.file}:${f.line}\``,
@@ -296,77 +296,77 @@ function formatHeaderReport(audit, surface, scanId) {
 
 const TOOLS = [
   {
-    name:        "run_static_scan",
+    name: "run_static_scan",
     description: "Run SAST static analysis on a local code repository using Semgrep, Bearer, OSV-Scanner, Gitleaks and CodeQL. Returns confirmed vulnerabilities, false positives, and generated fixes.",
     inputSchema: {
       type: "object",
       properties: {
         target_path: {
-          type:        "string",
+          type: "string",
           description: "Absolute or relative path to the local repository/folder to scan. Can also be a GitHub URL (https://github.com/owner/repo) or 'owner/repo' shorthand.",
         },
         include_codeql: {
-          type:        "boolean",
+          type: "boolean",
           description: "Include CodeQL taint analysis (slower but finds deeper data-flow issues). Default: true.",
-          default:     true,
+          default: true,
         },
         codeql_language: {
-          type:        "string",
+          type: "string",
           description: "CodeQL extractor language (javascript, python, java, go, ruby, csharp, cpp). Leave empty to auto-detect.",
-          default:     "",
+          default: "",
         },
         max_triage: {
-          type:        "number",
+          type: "number",
           description: "Maximum number of merged findings to AI-triage. Default: 25.",
-          default:     25,
+          default: 25,
         },
       },
       required: ["target_path"],
     },
   },
   {
-    name:        "run_recon",
+    name: "run_recon",
     description: "Crawl a web application and map its attack surface — discovering endpoints, classifying them (API, auth, static, etc.), and producing a surface report with an LLM-written summary.",
     inputSchema: {
       type: "object",
       properties: {
         url: {
-          type:        "string",
+          type: "string",
           description: "The target URL to crawl (e.g. https://example.com).",
         },
         max_depth: {
-          type:        "number",
+          type: "number",
           description: "Maximum crawl depth from the seed URL. Default: 2.",
-          default:     2,
+          default: 2,
         },
         max_pages: {
-          type:        "number",
+          type: "number",
           description: "Maximum number of pages to visit. Default: 30.",
-          default:     30,
+          default: 30,
         },
       },
       required: ["url"],
     },
   },
   {
-    name:        "run_header_audit",
+    name: "run_header_audit",
     description: "Crawl a web application and audit its HTTP security headers and cookies against OWASP best practices (CSP, HSTS, X-Frame-Options, SameSite cookies, CORS, etc.).",
     inputSchema: {
       type: "object",
       properties: {
         url: {
-          type:        "string",
+          type: "string",
           description: "The target URL to audit (e.g. https://example.com).",
         },
         max_depth: {
-          type:        "number",
+          type: "number",
           description: "Maximum crawl depth. Default: 2.",
-          default:     2,
+          default: 2,
         },
         max_pages: {
-          type:        "number",
+          type: "number",
           description: "Maximum pages to audit. Default: 30.",
-          default:     30,
+          default: 30,
         },
       },
       required: ["url"],
@@ -388,8 +388,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case "run_static_scan":  return await runStaticScan(args);
-      case "run_recon":        return await runRecon(args);
+      case "run_static_scan": return await runStaticScan(args);
+      case "run_recon": return await runRecon(args);
       case "run_header_audit": return await runHeaderAudit(args);
       default:
         return {
