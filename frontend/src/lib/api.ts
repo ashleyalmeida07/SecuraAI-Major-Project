@@ -538,3 +538,68 @@ export async function scanInjectionStream(
     }
   }
 }
+
+// ── LLM Prompt-Injection Audit ───────────────────────────────────────────────
+
+export interface LLMAuditRequest {
+  url: string;
+  endpoint_hint?: string;
+}
+
+export interface LLMAttackResult {
+  category_id: string;
+  owasp: string;
+  category_name: string;
+  prompt: string;
+  response_text: string;
+  verdict: "pass" | "fail" | "error";
+  evidence: string;
+  deterministic: boolean;
+  mutation_round: number;
+}
+
+export interface LLMAuditReport {
+  target_url: string;
+  ai_surfaces_found: number;
+  connect_method: string;
+  scan_timestamp: string;
+  categories_tested: any[];
+  total_attacks: number;
+  total_passed: number;
+  total_failed: number;
+  owasp_mapping: Record<string, string[]>;
+  severity_breakdown: Record<string, number>;
+  summary: string;
+  errors: string[];
+}
+
+export async function scanLLMAuditStream(
+  request: LLMAuditRequest,
+  onEvent: (data: any) => void
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/scan/stream/llm-audit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(`LLM Audit stream failed: ${res.statusText}`);
+  if (!res.body) throw new Error("No response body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const jsonStr = line.slice(6);
+        if (jsonStr.trim()) {
+          try { onEvent(JSON.parse(jsonStr)); } catch { /* ignore */ }
+        }
+      }
+    }
+  }
+}

@@ -248,3 +248,92 @@ class StaticAnalysisReport(BaseModel):
 
     summary: str = ""
     errors: list[str] = Field(default_factory=list)
+
+
+# ── Flow 7: BaaS Misconfiguration Audit ──────────────────────────────────────
+
+class BaaSAuditRequest(BaseModel):
+    url: str
+
+class BaaSFinding(BaseModel):
+    category: str  # "read_access" | "write_access" | "storage" | "auth"
+    table_or_resource: str
+    status: str  # "pass" | "fail"
+    severity: str = "medium"
+    evidence: str = ""
+    fix_suggestion: str = ""
+
+class BaaSAuditReport(BaseModel):
+    target_url: str
+    baas_provider: str = "none"
+    project_url: str = ""
+    tables_discovered: int = 0
+    scan_timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    findings: list[dict] = Field(default_factory=list)
+    total_checks: int = 0
+    total_passed: int = 0
+    total_failed: int = 0
+    severity_breakdown: dict = Field(default_factory=dict)
+    summary: str = ""
+    errors: list[str] = Field(default_factory=list)
+
+
+
+# ── Flow 5: LLM Prompt Injection Audit ───────────────────────────────────────
+
+class LLMAuditRequest(BaseModel):
+    url: str
+    endpoint_hint: str = ""  # optional: user-provided AI endpoint URL
+
+class LLMAttackResult(BaseModel):
+    category_id: str
+    owasp: str
+    category_name: str
+    prompt: str
+    response_text: str
+    verdict: str  # "pass" | "fail" | "error"
+    evidence: str = ""
+    deterministic: bool = False
+    mutation_round: int = 0
+
+class LLMAuditReport(BaseModel):
+    target_url: str
+    ai_surfaces_found: int = 0
+    connect_method: str = "none"
+    scan_timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    categories_tested: list[dict] = Field(default_factory=list)
+    total_attacks: int = 0
+    total_passed: int = 0
+    total_failed: int = 0
+    owasp_mapping: dict = Field(default_factory=dict)
+    severity_breakdown: dict = Field(default_factory=dict)
+    summary: str = ""
+    errors: list[str] = Field(default_factory=list)
+
+
+# ── Flow 7: BaaS Misconfiguration Audit ──────────────────────────────────────
+
+class BaaSAuditRequest(BaseModel):
+    url: str
+
+class BaaSFinding(BaseModel):
+    category: str  # "read_access" | "write_access" | "storage" | "auth"
+    table_or_resource: str
+    status: str  # "pass" | "fail"
+    severity: str = "medium"
+    evidence: str = ""
+    fix_suggestion: str = ""
+
+class BaaSAuditReport(BaseModel):
+    target_url: str
+    baas_provider: str = "none"
+    project_url: str = ""
+    tables_discovered: int = 0
+    scan_timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    findings: list[dict] = Field(default_factory=list)
+    total_checks: int = 0
+    total_passed: int = 0
+    total_failed: int = 0
+    severity_breakdown: dict = Field(default_factory=dict)
+    summary: str = ""
+    errors: list[str] = Field(default_factory=list)

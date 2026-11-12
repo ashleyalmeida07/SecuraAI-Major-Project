@@ -117,7 +117,11 @@ export function useScanRun(mode: ScanMode) {
   const triageAcc = useRef<TriageAcc>({ confirmed: 0, discarded: 0, done: 0, total: 0 });
 
   const nodeIds = useMemo(
-    () => (mode === "static" ? STATIC_NODE_IDS : FLOW_NODES[mode].map((n) => n.id)),
+    () => {
+      if (mode === "static") return STATIC_NODE_IDS;
+      if (mode === "llm-audit" || mode === "baas-audit") return [];
+      return FLOW_NODES[mode as Exclude<ScanMode, "static" | "llm-audit" | "baas-audit">].map((n) => n.id);
+    },
     [mode],
   );
 

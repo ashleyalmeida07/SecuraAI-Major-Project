@@ -5,6 +5,7 @@ Supported providers:
   - "anthropic" — Anthropic API (api.anthropic.com)
   - "nvidia"    — NVIDIA NIM API (integrate.api.nvidia.com) — OpenAI-compatible, free tier available
   - "openrouter"— OpenRouter API (openrouter.ai) — OpenAI-compatible, many free models
+  - "ollama"    — Local Ollama instance (localhost:11434) — completely private, no data sent externally
 
 The configured provider is the *primary*. When ``LLM_FALLBACK_ENABLED`` is set
 (the default), a second model — Kimi K3 on NVIDIA NIM by default — is attached via
@@ -38,10 +39,18 @@ def _provider_api_key(provider: str) -> Optional[str]:
 def _build_chat_model(provider: str, model: str):
     """Construct a LangChain chat model for one provider + model name.
 
-    NVIDIA NIM and OpenRouter are OpenAI-compatible, so they reuse ChatOpenAI
-    with a custom base_url. temperature=0 everywhere — security triage wants
-    deterministic output, not creativity.
+    NVIDIA NIM, OpenRouter, and Ollama are OpenAI-compatible, so they reuse
+    ChatOpenAI with a custom base_url. temperature=0 everywhere — security
+    triage wants deterministic output, not creativity.
     """
+    if provider == "ollama":
+        return ChatOpenAI(
+            model=model,
+            api_key="ollama",  # Ollama doesn't need a real key but ChatOpenAI requires one
+            base_url=f"{settings.OLLAMA_BASE_URL}/v1",
+            temperature=0,
+        )
+
     if provider == "nvidia":
         return ChatOpenAI(
             model=model,
@@ -116,3 +125,29 @@ def get_llm(structured_output=None):
         return _prepare(primary)
 
     return _prepare(primary).with_fallbacks([_prepare(fallback)])
+
+
+def get_llm_for_user(user_prefs: dict | None = None, structured_output=None):
+    """Return an LLM respecting the user's local-AI preference.
+
+    If ``user_prefs`` is provided and ``use_local_ai`` is True, build an Ollama
+    model pointing at the user's configured URL / model. Otherwise fall back to
+    the normal cloud ``get_llm()`` path.
+
+    This keeps the existing ``get_llm()`` completely unchanged — call sites that
+    don't care about per-user overrides continue to work as before.
+    """
+    if user_prefs and user_prefs.get("use_local_ai"):
+        base_url = user_prefs.get("ollama_base_url", "http://localhost:11434")
+        model_name = user_prefs.get("ollama_model", "llama3.1:8b")
+        primary = ChatOpenAI(
+            model=model_name,
+            api_key="ollama",
+            base_url=f"{base_url}/v1",
+            temperature=0,
+        )
+        if structured_output is not None:
+            return primary.with_structured_output(structured_output)
+        return primary
+
+    return get_llm(structured_output=structured_output)

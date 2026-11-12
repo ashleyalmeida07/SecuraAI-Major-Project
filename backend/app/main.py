@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.api.router import api_router
 from app.api.scan import scan_router
 from app.api.auth import auth_router
+from app.api.settings import settings_router
 
 app = FastAPI(
     title="AuthTrack API",
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.include_router(scan_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

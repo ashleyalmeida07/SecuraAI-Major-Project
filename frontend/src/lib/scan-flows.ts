@@ -10,14 +10,14 @@
 
 import type { ElementType } from "react";
 import {
-  Activity, Bug, Boxes, Brain, ClipboardCheck, Code, Database, FileSearch,
+  Activity, BrainCircuit, Bug, Boxes, Brain, ClipboardCheck, Code, Database, FileSearch,
   FileText, GitMerge, Globe, KeyRound, Map, Radio, Route, Scale, ShieldCheck,
   Wrench, Zap,
 } from "lucide-react";
 import type { PipelineNode, PipelineStage } from "@/components/ui/scan-pipeline";
 import { TOOL_META } from "@/lib/static-analysis";
 
-export type ScanMode = "static" | "recon" | "full" | "injection";
+export type ScanMode = "static" | "recon" | "full" | "injection" | "llm-audit" | "baas-audit";
 
 /** A sequential node in one of the URL-driven flows. */
 export interface FlowNode {
@@ -147,6 +147,55 @@ export const SCAN_FLOWS: ScanFlowMeta[] = [
     ],
     accent: "#f87171",
   },
+  {
+    mode: "llm-audit",
+    slug: "llm-audit",
+    short: "LLM Audit",
+    label: "LLM Prompt-Injection Audit",
+    icon: BrainCircuit,
+    navId: "scan-llm-audit",
+    badge: "OWASP LLM",
+    badgeClass: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    input: "url",
+    tagline: "Test AI surfaces against OWASP LLM Top-10 attack classes",
+    description:
+      "Auto-detects chat widgets and AI API endpoints on the target, then runs a cyclic " +
+      "LangGraph attack loop across five OWASP LLM categories — system-prompt extraction, " +
+      "jailbreaks, PII leakage, indirect injection and tool abuse. A judge LLM scores each " +
+      "reply; blocked prompts are mutated and retried up to three times.",
+    bullets: [
+      "Auto-detects chat widgets, /api/chat endpoints and streaming AI calls",
+      "System-prompt extraction, jailbreaks, PII leakage, tool abuse",
+      "LLM judge with deterministic canary-phrase checks",
+      "Mutation engine rephrases blocked prompts and retries up to 3×",
+      "Findings mapped to OWASP LLM01, LLM02, LLM06, LLM08",
+    ],
+    accent: "#c084fc",
+  },
+  {
+    mode: "baas-audit",
+    slug: "baas-audit",
+    short: "BaaS Audit",
+    label: "BaaS Misconfiguration Audit",
+    icon: Database,
+    navId: "scan-baas-audit",
+    badge: "Supabase/Firebase",
+    badgeClass: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    input: "url",
+    tagline: "Test Supabase and Firebase backends for misconfigurations",
+    description:
+      "Auto-detects Supabase or Firebase backends from network traffic, then tests Row Level Security, " +
+      "anonymous read/write access, storage bucket permissions, and auth configuration. Suggests exact " +
+      "RLS policies and security rules to fix any issues found.",
+    bullets: [
+      "Auto-detects Supabase and Firebase from network traffic and JS bundles",
+      "Tests anonymous read/write access on every discovered table",
+      "Checks storage bucket permissions and auth signup configuration",
+      "Suggests exact RLS policies and Firebase security rules as fixes",
+      "Self-cleaning write tests — never leaves data behind",
+    ],
+    accent: "#f59e0b",
+  },
 ];
 
 export const flowByMode = (mode: ScanMode): ScanFlowMeta =>
@@ -206,7 +255,7 @@ export const INJECTION_NODES: FlowNode[] = [
     activeDesc: "Building injection report with executive summary..." },
 ];
 
-export const FLOW_NODES: Record<Exclude<ScanMode, "static">, FlowNode[]> = {
+export const FLOW_NODES: Record<Exclude<ScanMode, "static" | "llm-audit" | "baas-audit">, FlowNode[]> = {
   recon: RECON_NODES,
   full: FULL_NODES,
   injection: INJECTION_NODES,
@@ -240,7 +289,7 @@ const RECON_STAGE = (accent: string): PipelineStage => ({
  * a single stage; the full and injection flows add a second stage for the work
  * that consumes recon's endpoint list.
  */
-export const URL_FLOW_STAGES: Record<Exclude<ScanMode, "static">, PipelineStage[]> = {
+export const URL_FLOW_STAGES: Record<Exclude<ScanMode, "static" | "llm-audit" | "baas-audit">, PipelineStage[]> = {
   recon: [RECON_STAGE(flowByMode("recon").accent)],
   full: [
     RECON_STAGE(flowByMode("full").accent),
@@ -266,9 +315,12 @@ export const URL_FLOW_STAGES: Record<Exclude<ScanMode, "static">, PipelineStage[
   ],
 };
 
-/** Pipeline stages for any flow — static has its own hand-authored stages. */
+/** Pipeline stages for any flow — static and llm-audit have their own pages. */
 export function stagesForMode(mode: ScanMode): PipelineStage[] {
-  return mode === "static" ? STATIC_STAGES : URL_FLOW_STAGES[mode];
+  if (mode === "static") return STATIC_STAGES;
+  if (mode === "llm-audit") return [];  // llm-audit has its own custom pipeline UI
+  if (mode === "baas-audit") return [];  // baas-audit has its own custom pipeline UI
+  return URL_FLOW_STAGES[mode];
 }
 
 // ── Stage definitions for the static analysis flow ───────────────────────────

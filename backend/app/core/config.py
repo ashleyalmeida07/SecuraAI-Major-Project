@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: Optional[str] = None       # from https://build.nvidia.com
     OPENROUTER_API_KEY: Optional[str] = None   # from https://openrouter.ai/keys
 
+    # Ollama (Local AI) Settings
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.1:8b"
+
     # Database Settings
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_USER: str = "postgres"

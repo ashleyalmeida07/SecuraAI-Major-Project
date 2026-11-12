@@ -86,7 +86,9 @@ const now = () =>
 const nodeIds = (mode: ScanMode): string[] =>
   mode === "static"
     ? STATIC_NODE_IDS
-    : (FLOW_NODES[mode as Exclude<ScanMode, "static">]?.map((n) => n.id) ?? []);
+    : mode === "llm-audit" || mode === "baas-audit"
+    ? []
+    : (FLOW_NODES[mode as Exclude<ScanMode, "static" | "llm-audit" | "baas-audit">]?.map((n) => n.id) ?? []);
 
 function deriveStaticStatuses(done: Set<string>, running: boolean): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
@@ -126,6 +128,8 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     recon: defaultState(),
     full: defaultState(),
     injection: defaultState(),
+    "llm-audit": defaultState(),
+    "baas-audit": defaultState(),
   });
 
   const [, forceRender] = useState(0);
@@ -139,10 +143,10 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
   const getState = useCallback((mode: ScanMode) => storeRef.current[mode], []);
 
   const activeMode = useMemo<ScanMode | null>(() => {
-    const modes: ScanMode[] = ["static", "recon", "full", "injection"];
+    const modes: ScanMode[] = ["static", "recon", "full", "injection", "llm-audit", "baas-audit"];
     return modes.find((m) => storeRef.current[m].scanning) ?? null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeRef.current.static.scanning, storeRef.current.recon.scanning, storeRef.current.full.scanning, storeRef.current.injection.scanning]);
+  }, [storeRef.current.static.scanning, storeRef.current.recon.scanning, storeRef.current.full.scanning, storeRef.current.injection.scanning, storeRef.current["llm-audit"].scanning, storeRef.current["baas-audit"].scanning]);
 
   const reset = useCallback((mode: ScanMode) => {
     patch(mode, defaultState());

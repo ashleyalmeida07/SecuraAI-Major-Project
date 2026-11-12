@@ -15,12 +15,14 @@ import os
 import tarfile
 import tempfile
 import traceback
-from app.models.schemas import ScanRequest, HeaderScanRequest, StaticScanRequest, InjectionScanRequest
+from app.models.schemas import ScanRequest, HeaderScanRequest, StaticScanRequest, InjectionScanRequest, LLMAuditRequest, BaaSAuditRequest
 from app.agents.recon.graph import recon_graph
 from app.agents.header_audit.graph import header_audit_graph
 from app.agents.static_analysis.graph import static_analysis_graph, triage_recursion_limit
 from app.agents.static_analysis.tools import cleanup_clone
 from app.agents.injection.graph import injection_graph
+from app.agents.llm_audit.graph import llm_audit_graph, ATTACK_CATEGORIES
+from app.agents.baas_audit.graph import baas_audit_graph
 from app.db.session import SessionLocal
 from app.db.models import Scan, FlowRun, User
 from app.api.deps import get_current_user
@@ -737,6 +739,116 @@ async def stream_injection_scan(request: InjectionScanRequest, current_user: Use
                     scan.status = "failed"
                     db.commit()
             yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@scan_router.post("/stream/llm-audit")
+async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depends(get_current_user)):
+    """Stream Flow 5: LLM / Prompt-Injection Audit using SSE."""
+    async def event_generator():
+        accumulated: dict = {}
+        with SessionLocal() as db:
+            scan = Scan(target=request.url, scan_type="llm_audit", status="running", user_id=current_user.id)
+            db.add(scan)
+            db.commit()
+            scan_id = scan.id
+
+        try:
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting LLM Prompt-Injection Audit...'})}\\n\\n"
+            async for chunk in llm_audit_graph.astream({
+                "target_url": request.url,
+                "endpoint_hint": request.endpoint_hint,
+                "ai_surfaces": [],
+                "connect_method": "",
+                "connect_config": {},
+                "attack_index": 0,
+                "attack_results": [],
+                "mutation_count": 0,
+                "llm_audit_report": {},
+                "errors": [],
+            }, {"recursion_limit": 60}):
+                for node_name, state_update in chunk.items():
+                    accumulated.update(state_update)
+                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\\n\\n"
+                    await asyncio.sleep(0.05)
+
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                scan.raw_data = {"llm_audit_report": accumulated.get("llm_audit_report", {})}
+                db.commit()
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'LLM Audit Complete!', 'scan_id': str(scan_id)})}\\n\\n"
+        except BaseException as e:
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                if accumulated.get("llm_audit_report"):
+                    scan.status = "completed"
+                    scan.finished_at = datetime.datetime.utcnow()
+                    scan.raw_data = {"llm_audit_report": accumulated["llm_audit_report"]}
+                    db.commit()
+                elif scan.status == "running":
+                    scan.status = "failed"
+                    db.commit()
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\\n\\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@scan_router.post("/stream/baas-audit")
+async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depends(get_current_user)):
+    """Stream Flow 7: BaaS Misconfiguration Audit using SSE."""
+    async def event_generator():
+        accumulated: dict = {}
+        with SessionLocal() as db:
+            scan = Scan(target=request.url, scan_type="baas_audit", status="running", user_id=current_user.id)
+            db.add(scan)
+            db.commit()
+            scan_id = scan.id
+
+        try:
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting BaaS Misconfiguration Audit...'})}\\n\\n"
+            async for chunk in baas_audit_graph.astream({
+                "target_url": request.url,
+                "discovered_urls": [],
+                "network_requests": [],
+                "baas_provider": "",
+                "project_url": "",
+                "anon_key": "",
+                "firebase_config": {},
+                "tables": [],
+                "read_results": [],
+                "write_results": [],
+                "storage_results": [],
+                "auth_results": {},
+                "baas_audit_report": {},
+                "errors": [],
+            }, {"recursion_limit": 60}):
+                for node_name, state_update in chunk.items():
+                    accumulated.update(state_update)
+                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\\n\\n"
+                    await asyncio.sleep(0.05)
+
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                scan.status = "completed"
+                scan.finished_at = datetime.datetime.utcnow()
+                scan.raw_data = {"baas_audit_report": accumulated.get("baas_audit_report", {})}
+                db.commit()
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'BaaS Audit Complete!', 'scan_id': str(scan_id)})}\\n\\n"
+        except BaseException as e:
+            with SessionLocal() as db:
+                scan = db.query(Scan).get(scan_id)
+                if accumulated.get("baas_audit_report"):
+                    scan.status = "completed"
+                    scan.finished_at = datetime.datetime.utcnow()
+                    scan.raw_data = {"baas_audit_report": accumulated["baas_audit_report"]}
+                    db.commit()
+                elif scan.status == "running":
+                    scan.status = "failed"
+                    db.commit()
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\\n\\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

@@ -5,7 +5,7 @@ import {
   Search, LayoutDashboard, Shield, Globe, FileText,
   LogOut, ChevronDown, ChevronRight,
   Activity, PanelLeftClose, PanelLeftOpen,
-  Command, X, Zap, Bell, ShieldCheck, Cpu
+  Command, X, Zap, Bell, ShieldCheck, Cpu, Settings, BrainCircuit, Database
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -41,7 +41,9 @@ const navGroups: NavGroupData[] = [
       { id: 'scan-static',    title: 'Static Analysis', icon: Shield,      href: '/scan/static' },
       { id: 'scan-recon',     title: 'Recon',           icon: Globe,       href: '/scan/recon' },
       { id: 'scan-headers',   title: 'Header Audit',    icon: ShieldCheck, href: '/scan/full' },
-      { id: 'scan-injection', title: 'Injection Test',  icon: Zap,         href: '/scan/injection' },
+      { id: 'scan-injection', title: 'Injection Test',  icon: Zap,          href: '/scan/injection' },
+      { id: 'scan-llm-audit', title: 'LLM Audit',       icon: BrainCircuit, href: '/scan/llm-audit' },
+      { id: 'scan-baas-audit', title: 'BaaS Audit',      icon: Database,     href: '/scan/baas-audit' },
       { id: 'reports',        title: 'Reports',         icon: FileText,    href: '/reports' },
       { id: 'mcp',            title: 'MCP Integration', icon: Cpu,         href: '/mcp' },
     ],
@@ -49,6 +51,7 @@ const navGroups: NavGroupData[] = [
 ];
 
 const bottomItems: NavItemData[] = [
+  { id: 'settings',    title: 'Settings',  icon: Settings, href: '/settings' },
   { id: 'logout',       title: 'Sign Out',  icon: LogOut },
 ];
 
