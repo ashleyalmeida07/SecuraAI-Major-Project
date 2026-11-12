@@ -422,8 +422,13 @@ export default function LLMAuditPage() {
     attackResultsRef.current = [];
     nodeResultsRef.current = {};
     setNodeResults({});
-    setProgressPct(0);
-    setActivity("");
+    setProgressPct(5);
+    setActivity("Initialising LLM Prompt-Injection Audit…");
+
+    // ── Initialise all nodes to idle immediately so the pipeline renders ──
+    const initStatuses: Record<string, NodeStatus> = {};
+    LLM_AUDIT_NODES.forEach((n) => { initStatuses[n.id] = "idle"; });
+    setNodeStatuses(initStatuses);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -483,7 +488,7 @@ export default function LLMAuditPage() {
     setActivity("");
   };
 
-  const showPipeline = phase !== "idle" && Object.keys(nodeStatuses).length > 0;
+  const showPipeline = phase !== "idle";
   const scanComplete = phase === "done";
 
   return (

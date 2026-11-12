@@ -502,8 +502,13 @@ export default function BaaSAuditPage() {
     testResultsRef.current = [];
     nodeResultsRef.current = {};
     setNodeResults({});
-    setProgressPct(0);
-    setActivity("");
+    setProgressPct(5);
+    setActivity("Initialising BaaS Misconfiguration Audit…");
+
+    // ── Initialise all nodes to idle immediately so the pipeline renders ──
+    const initStatuses: Record<string, NodeStatus> = {};
+    BAAS_AUDIT_NODES.forEach((n) => { initStatuses[n.id] = "idle"; });
+    setNodeStatuses(initStatuses);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -556,7 +561,7 @@ export default function BaaSAuditPage() {
     setActivity("");
   };
 
-  const showPipeline = phase !== "idle" && Object.keys(nodeStatuses).length > 0;
+  const showPipeline = phase !== "idle";
   const scanComplete = phase === "done";
 
   return (
