@@ -9,25 +9,77 @@ import { isAuthenticated } from "@/utils/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
   Shield, Globe, Clock, Activity, ArrowRight,
-  Map, Zap, Code, Bug, PlusCircle, ShieldAlert
+  Map, Zap, Code, Bug, PlusCircle, ShieldAlert,
+  BrainCircuit, Database, ShieldCheck, ChevronRight,
+  TrendingUp, Target, AlertTriangle, CheckCircle2,
+  FileText, Layers,
 } from "lucide-react";
 import { getScanHistory } from "@/lib/api";
 import { DonutChart, VerticalBars, TYPE_COLORS } from "@/components/ui/report-charts";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 
-type Mode = "recon" | "full" | "injection" | "static";
+type Mode = "recon" | "full" | "injection" | "static" | "llm_audit" | "baas_audit";
 
-const MODE_META: Record<Mode, { label: string; icon: React.ElementType; color: string }> = {
-  recon:     { label: "Recon",      icon: Map,    color: "#00d4ff" },
-  full:      { label: "Full Scan",  icon: Shield, color: "#a78bfa" },
-  injection: { label: "Injection",  icon: Zap,    color: "#f97316" },
-  static:    { label: "Static",     icon: Code,   color: "#10b981" },
+const MODE_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
+  recon:     { label: "Recon",      icon: Map,         color: "#22d3ee" },
+  full:      { label: "Header Audit", icon: ShieldCheck, color: "#34d399" },
+  injection: { label: "Injection",  icon: Zap,         color: "#f87171" },
+  static:    { label: "Static",     icon: Code,        color: "#a78bfa" },
+  llm_audit: { label: "LLM Audit",  icon: BrainCircuit, color: "#c084fc" },
+  baas_audit:{ label: "BaaS Audit", icon: Database,    color: "#f59e0b" },
 };
 
-const MODE_ORDER: Mode[] = ["recon", "full", "injection", "static"];
+const SCAN_QUICK_ACTIONS = [
+  {
+    href: "/scan/static",
+    icon: Code,
+    label: "Static Analysis",
+    desc: "Scan source code with 5 engines in parallel",
+    accent: "#a78bfa",
+    badge: "SAST",
+  },
+  {
+    href: "/scan/recon",
+    icon: Globe,
+    label: "Recon",
+    desc: "Map the attack surface of any live URL",
+    accent: "#22d3ee",
+  },
+  {
+    href: "/scan/full",
+    icon: ShieldCheck,
+    label: "Header Audit",
+    desc: "Recon + full security-header audit",
+    accent: "#34d399",
+    badge: "Recommended",
+  },
+  {
+    href: "/scan/injection",
+    icon: Zap,
+    label: "Injection Test",
+    desc: "SQLi, XSS, command & path traversal",
+    accent: "#f87171",
+    badge: "Active",
+  },
+  {
+    href: "/scan/llm-audit",
+    icon: BrainCircuit,
+    label: "LLM Audit",
+    desc: "OWASP LLM Top-10 prompt-injection testing",
+    accent: "#c084fc",
+    badge: "OWASP LLM",
+  },
+  {
+    href: "/scan/baas-audit",
+    icon: Database,
+    label: "BaaS Audit",
+    desc: "Supabase / Firebase misconfiguration scan",
+    accent: "#f59e0b",
+  },
+];
 
 const SEVERITY_COLORS: Record<string, string> = {
   Critical: "#ef4444",
@@ -60,26 +112,180 @@ function scanMetrics(scan: any) {
   };
 }
 
-function StatTile({ label, value, accent, sub }: { label: string; value: number | string; accent?: string; sub?: string }) {
+function StatCard({
+  label, value, accent, icon: Icon, sub,
+}: {
+  label: string; value: number | string; accent?: string;
+  icon?: React.ElementType; sub?: string;
+}) {
   return (
-    <div className="bg-card border border-border rounded-xl px-5 py-4 flex flex-col gap-1">
-      <div className="text-2xl font-extrabold text-foreground leading-none" style={accent ? { color: accent } : undefined}>
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+        {Icon && (
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-md border"
+            style={{ borderColor: `${accent}30`, background: `${accent}12` }}
+          >
+            <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
+          </div>
+        )}
+      </div>
+      <div className="text-3xl font-extrabold leading-none text-foreground" style={accent ? { color: accent } : undefined}>
         {value}
       </div>
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      {sub && <div className="text-[11px] text-muted-foreground/60">{sub}</div>}
+      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
     </div>
   );
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
+    <h2 className="mb-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </h2>
   );
 }
 
+// ── Empty-state dashboard ─────────────────────────────────────────────────────
+function EmptyDashboard() {
+  return (
+    <div className="flex flex-col gap-8">
+      {/* Welcome banner */}
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-card px-8 py-10">
+        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/5 blur-3xl" />
+        <div className="absolute -bottom-10 -left-10 h-40 w-40 rounded-full bg-purple-500/5 blur-2xl" />
+        <div className="relative flex flex-col gap-3 max-w-xl">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+              <Shield className="h-5 w-5 text-primary" />
+            </div>
+            <span className="text-xs font-semibold uppercase tracking-widest text-primary">SecuraAI</span>
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">
+            Start your first security scan
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Run any of the 6 scan types below — from SAST over your codebase to live BaaS misconfiguration
+            testing. Results and analytics appear here automatically after each run.
+          </p>
+          <div className="mt-2 flex gap-3">
+            <Link
+              href="/scan/full"
+              className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-neutral-200"
+            >
+              <ShieldCheck className="h-4 w-4" /> Run Header Audit
+            </Link>
+            <Link
+              href="/scan/static"
+              className="flex items-center gap-2 rounded-md border border-border bg-secondary/60 px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+            >
+              <Code className="h-4 w-4" /> Static Analysis
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick-action scan cards */}
+      <div>
+        <SectionHeading><Layers className="h-3.5 w-3.5" /> Available Scan Types</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {SCAN_QUICK_ACTIONS.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Link
+                key={action.href}
+                href={action.href}
+                className="group relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-5 transition-all hover:border-opacity-60 hover:shadow-lg"
+                style={{ ["--hover-color" as string]: action.accent }}
+              >
+                <div
+                  className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                  style={{ background: `radial-gradient(ellipse at top left, ${action.accent}08 0%, transparent 70%)` }}
+                />
+                <div className="relative flex items-start justify-between">
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border"
+                    style={{ borderColor: `${action.accent}30`, background: `${action.accent}15` }}
+                  >
+                    <Icon className="h-4.5 w-4.5 h-[18px] w-[18px]" style={{ color: action.accent }} />
+                  </div>
+                  {action.badge && (
+                    <span
+                      className="rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                      style={{ color: action.accent, borderColor: `${action.accent}30`, background: `${action.accent}10` }}
+                    >
+                      {action.badge}
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <div className="text-sm font-semibold text-foreground">{action.label}</div>
+                  <div className="mt-1 text-[13px] leading-5 text-muted-foreground">{action.desc}</div>
+                </div>
+                <div
+                  className="relative flex items-center gap-1 text-xs font-medium opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                  style={{ color: action.accent }}
+                >
+                  Start scan <ChevronRight className="h-3.5 w-3.5" />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div>
+        <SectionHeading><Target className="h-3.5 w-3.5" /> How it works</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[
+            {
+              step: "01",
+              icon: Target,
+              title: "Enter your target",
+              desc: "Paste a URL or repo path — SecuraAI auto-selects the right scan type.",
+              color: "#a78bfa",
+            },
+            {
+              step: "02",
+              icon: Activity,
+              title: "Watch agents run",
+              desc: "A live pipeline shows every node as it runs — no black boxes.",
+              color: "#22d3ee",
+            },
+            {
+              step: "03",
+              icon: FileText,
+              title: "Get a full report",
+              desc: "Findings, severity, OWASP mappings, and exact fix suggestions.",
+              color: "#34d399",
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.step} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-xs font-bold" style={{ color: item.color }}>{item.step}</span>
+                  <div
+                    className="flex h-7 w-7 items-center justify-center rounded-md border"
+                    style={{ borderColor: `${item.color}30`, background: `${item.color}12` }}
+                  >
+                    <Icon className="h-3.5 w-3.5" style={{ color: item.color }} />
+                  </div>
+                </div>
+                <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                <div className="text-[13px] leading-5 text-muted-foreground">{item.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter();
   const [scans, setScans] = useState<any[]>([]);
@@ -93,7 +299,7 @@ export default function DashboardPage() {
 
   if (!mounted) return null;
 
-  // ── Aggregate metrics ──────────────────────────────────────────────────────
+  // ── Aggregate metrics ───────────────────────────────────────────────────────
   const agg = scans.reduce((a, s) => {
     const m = scanMetrics(s);
     a.endpoints            += m.endpoints;
@@ -106,16 +312,18 @@ export default function DashboardPage() {
     return a;
   }, { endpoints: 0, headerFindings: 0, injectionConfirmed: 0, injectionTested: 0, staticVulns: 0, staticFalsePositives: 0, staticFixes: 0 });
 
-  const modeCounts = MODE_ORDER.reduce<Record<Mode, number>>((acc, m) => {
-    acc[m] = scans.filter(s => s.mode === m).length;
-    return acc;
-  }, {} as Record<Mode, number>);
+  const totalFindings = agg.headerFindings + agg.injectionConfirmed + agg.staticVulns;
 
-  const presentModes = MODE_ORDER.filter(m => modeCounts[m] > 0);
-
-  // ── Chart data ────────────────────────────────────────────────────────────
-  const scansByType = presentModes.map(m => ({
-    name: MODE_META[m].label, value: modeCounts[m], color: MODE_META[m].color,
+  const scansByType = Object.entries(
+    scans.reduce<Record<string, number>>((acc, s) => {
+      const key = s.mode || "recon";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {})
+  ).map(([key, value]) => ({
+    name: MODE_META[key]?.label ?? key,
+    value,
+    color: MODE_META[key]?.color ?? "#6b7280",
   }));
 
   const findingsByCategory = [
@@ -124,14 +332,12 @@ export default function DashboardPage() {
     { name: "Static",    value: agg.staticVulns,        color: TYPE_COLORS[2] },
   ].filter(d => d.value > 0);
 
-  // Severity breakdown from header + injection findings
   const severityCounts: Record<string, number> = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-  const endpointCounts: Record<string, number>  = { auth_page: 0, api: 0, static_asset: 0, dashboard: 0, unknown: 0 };
+  const endpointCounts: Record<string, number>  = {};
 
   scans.forEach(scan => {
     const m = scanMetrics(scan);
-    const allFindings = [...m.headerAllFindings, ...m.injectionAllFindings];
-    allFindings.forEach((f: any) => {
+    [...m.headerAllFindings, ...m.injectionAllFindings].forEach((f: any) => {
       const sev = f.severity || "Low";
       severityCounts[sev] = (severityCounts[sev] || 0) + 1;
     });
@@ -153,64 +359,58 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout activeId="dashboard">
-      <div className="max-w-6xl mx-auto flex flex-col gap-8">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-foreground tracking-tight">Dashboard</h1>
-            <p className="mt-2 text-sm text-muted-foreground">Overview and analytics across all your security scans.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Overview and analytics across all your security scans.
+            </p>
           </div>
           <Link
-            href="/scan"
-            className="flex items-center gap-2 bg-white text-black hover:bg-neutral-200 font-medium px-4 py-2 rounded-md transition-colors shrink-0"
+            href="/scan/full"
+            className="flex shrink-0 items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-neutral-200"
           >
             <PlusCircle className="h-4 w-4" /> New Scan
           </Link>
         </div>
 
         {scans.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 bg-card border border-border rounded-xl shadow-sm">
-            <Shield size={48} className="text-muted-foreground/30 mb-4" />
-            <h2 className="text-xl font-semibold mb-2">No Scan History</h2>
-            <p className="text-muted-foreground text-sm mb-6 text-center max-w-sm">
-              You haven&apos;t run any security scans yet. Start a new scan to see results and analytics here.
-            </p>
-            <Link href="/scan" className="bg-white text-black hover:bg-neutral-200 font-medium px-6 py-2.5 rounded-md transition-colors">
-              Run New Scan
-            </Link>
-          </div>
+          <EmptyDashboard />
         ) : (
           <>
-            {/* ── Stat Tiles ── */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatTile label="Total Scans"         value={scans.length} />
-              <StatTile label="Endpoints Discovered" value={agg.endpoints + agg.injectionTested} />
-              <StatTile label="Header Findings"      value={agg.headerFindings}       accent={agg.headerFindings > 0 ? "#f59e0b" : undefined} />
-              <StatTile label="Injection Vulns"      value={agg.injectionConfirmed}   accent={agg.injectionConfirmed > 0 ? "#ef4444" : undefined} />
-              <StatTile label="Static Vulns"         value={agg.staticVulns}          accent={agg.staticVulns > 0 ? "#ef4444" : undefined} />
-              <StatTile label="False Positives"      value={agg.staticFalsePositives} />
-              <StatTile label="Fixes Generated"      value={agg.staticFixes}          accent={agg.staticFixes > 0 ? "#00d4ff" : undefined} />
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <StatCard label="Total Scans"      value={scans.length}            icon={Shield}       accent="#a78bfa" />
+              <StatCard label="Endpoints Found"  value={agg.endpoints}           icon={Globe}        accent="#22d3ee" />
+              <StatCard label="Vulnerabilities"  value={totalFindings}           icon={AlertTriangle} accent={totalFindings > 0 ? "#f87171" : undefined} />
+              <StatCard label="Fixes Generated"  value={agg.staticFixes}         icon={CheckCircle2} accent={agg.staticFixes > 0 ? "#34d399" : undefined} />
+              <StatCard label="Header Findings"  value={agg.headerFindings}      icon={ShieldAlert}  accent={agg.headerFindings > 0 ? "#f59e0b" : undefined} />
+              <StatCard label="Injection Vulns"  value={agg.injectionConfirmed}  icon={Zap}          accent={agg.injectionConfirmed > 0 ? "#ef4444" : undefined} />
+              <StatCard label="Static Vulns"     value={agg.staticVulns}         icon={Code}         accent={agg.staticVulns > 0 ? "#ef4444" : undefined} />
+              <StatCard label="False Positives"  value={agg.staticFalsePositives} icon={Bug}         accent="#6b7280" />
             </div>
 
-            {/* ── Scan-type + Findings overview charts ── */}
+            {/* Charts row */}
             <div>
-              <SectionHeading><Activity size={13} /> Activity Overview</SectionHeading>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="p-4 bg-card border border-border rounded-xl">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Scans by Type</div>
+              <SectionHeading><Activity className="h-3.5 w-3.5" /> Activity Overview</SectionHeading>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scans by Type</div>
                   <VerticalBars data={scansByType} emptyLabel="No scans yet" />
                 </div>
-                <div className="p-4 bg-card border border-border rounded-xl flex flex-col">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                    <Bug size={13} /> Findings by Category
+                <div className="flex flex-col rounded-xl border border-border bg-card p-5">
+                  <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Bug className="h-3.5 w-3.5" /> Findings by Category
                   </div>
-                  <DonutChart data={findingsByCategory} centerLabel="Findings" emptyLabel="No findings across scans" />
+                  <DonutChart data={findingsByCategory} centerLabel="Findings" emptyLabel="No findings yet" />
                   {findingsByCategory.length > 0 && (
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 justify-center">
+                    <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
                       {findingsByCategory.map(d => (
-                        <span key={d.name} className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <span className="w-2 h-2 rounded-full" style={{ background: d.color }} />
+                        <span key={d.name} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="h-2 w-2 rounded-full" style={{ background: d.color }} />
                           {d.name} ({d.value})
                         </span>
                       ))}
@@ -220,62 +420,52 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ── Analytics charts ── */}
+            {/* Analytics */}
             <div>
-              <SectionHeading><ShieldAlert size={13} /> Vulnerability Analytics</SectionHeading>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-                {/* Severity breakdown pie */}
-                <div className="bg-card border border-border p-5 rounded-xl">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">Findings by Severity</div>
+              <SectionHeading><ShieldAlert className="h-3.5 w-3.5" /> Vulnerability Analytics</SectionHeading>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Findings by Severity</div>
                   {severityData.length > 0 ? (
-                    <div className="h-[260px]">
+                    <div className="h-[240px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie
-                            data={severityData}
-                            cx="50%" cy="50%"
-                            innerRadius={65} outerRadius={95}
-                            paddingAngle={4}
-                            dataKey="value"
-                            stroke="none"
-                          >
+                          <Pie data={severityData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={4} dataKey="value" stroke="none">
                             {severityData.map((entry, i) => (
                               <Cell key={i} fill={SEVERITY_COLORS[entry.name] || "#6b7280"} />
                             ))}
                           </Pie>
-                          <Tooltip
-                            contentStyle={{ backgroundColor: "#141418", borderColor: "rgba(255,255,255,0.1)", borderRadius: "8px" }}
-                            itemStyle={{ color: "#fff" }}
-                          />
-                          <Legend verticalAlign="bottom" height={32} />
+                          <Tooltip contentStyle={{ backgroundColor: "#141418", borderColor: "rgba(255,255,255,0.08)", borderRadius: "8px" }} itemStyle={{ color: "#fff" }} />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
                   ) : (
-                    <div className="h-[260px] flex items-center justify-center text-muted-foreground text-sm">
-                      No severity data yet.
+                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">No severity data yet</div>
+                  )}
+                  {severityData.length > 0 && (
+                    <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+                      {severityData.map(d => (
+                        <span key={d.name} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS[d.name] }} />
+                          {d.name} ({d.value})
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>
 
-                {/* Attack surface bar chart */}
-                <div className="bg-card border border-border p-5 rounded-xl">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-1.5">
-                    <Globe size={13} /> Attack Surface Breakdown
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <div className="mb-4 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Globe className="h-3.5 w-3.5" /> Attack Surface Breakdown
                   </div>
                   {endpointData.length > 0 ? (
-                    <div className="h-[260px]">
+                    <div className="h-[240px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={endpointData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                           <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 11 }} />
                           <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{ backgroundColor: "#141418", borderColor: "rgba(255,255,255,0.1)", borderRadius: "8px" }}
-                            itemStyle={{ color: "#fff" }}
-                            cursor={{ fill: "rgba(255,255,255,0.02)" }}
-                          />
+                          <Tooltip contentStyle={{ backgroundColor: "#141418", borderColor: "rgba(255,255,255,0.08)", borderRadius: "8px" }} itemStyle={{ color: "#fff" }} cursor={{ fill: "rgba(255,255,255,0.02)" }} />
                           <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                             {endpointData.map((entry, i) => (
                               <Cell key={i} fill={ENDPOINT_COLORS[entry.rawKey] || ENDPOINT_COLORS.unknown} />
@@ -285,53 +475,81 @@ export default function DashboardPage() {
                       </ResponsiveContainer>
                     </div>
                   ) : (
-                    <div className="h-[260px] flex items-center justify-center text-muted-foreground text-sm">
-                      No endpoint data yet.
-                    </div>
+                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">No endpoint data yet</div>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* ── Recent scans quick list ── */}
+            {/* Recent scans */}
             {recentScans.length > 0 && (
               <div>
-                <SectionHeading><Clock size={13} /> Recent Scans</SectionHeading>
+                <SectionHeading><Clock className="h-3.5 w-3.5" /> Recent Scans</SectionHeading>
                 <div className="flex flex-col gap-2">
                   {recentScans.map(scan => {
-                    const mode: Mode = MODE_ORDER.includes(scan.mode) ? scan.mode : "recon";
-                    const meta = MODE_META[mode];
+                    const meta = MODE_META[scan.mode] ?? MODE_META.recon;
                     const Icon = meta.icon;
                     return (
-                      <div key={scan.id} className="flex items-center justify-between bg-card border border-border rounded-lg px-4 py-3 hover:border-primary/50 transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${meta.color}1a` }}>
+                      <div key={scan.id} className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/30">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
+                            style={{ borderColor: `${meta.color}30`, background: `${meta.color}12` }}
+                          >
                             <Icon className="h-4 w-4" style={{ color: meta.color }} />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-sm font-medium truncate max-w-[320px]">{scan.url}</div>
-                            <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <div className="max-w-[340px] truncate text-sm font-medium text-foreground">{scan.url}</div>
+                            <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                               <Clock className="h-3 w-3" /> {new Date(scan.timestamp).toLocaleString()}
+                              <span className="ml-1 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider" style={{ color: meta.color, borderColor: `${meta.color}30`, background: `${meta.color}10` }}>
+                                {meta.label}
+                              </span>
                             </div>
                           </div>
                         </div>
                         <Link
                           href={`/reports?id=${scan.id}`}
-                          className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-md bg-secondary hover:bg-secondary/80 text-xs font-medium transition-colors ml-4"
+                          className="ml-4 flex shrink-0 items-center gap-1 rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary/70"
                         >
-                          View Report <ArrowRight className="h-3.5 w-3.5" />
+                          View <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       </div>
                     );
                   })}
                 </div>
                 <div className="mt-4 flex justify-center">
-                  <Link href="/recent" className="flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors">
-                    View all recent scans <ArrowRight className="w-4 h-4" />
+                  <Link href="/recent" className="flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80">
+                    View all scans <ArrowRight className="h-4 w-4" />
                   </Link>
                 </div>
               </div>
             )}
+
+            {/* Quick-access scan cards (at bottom for users with history) */}
+            <div>
+              <SectionHeading><TrendingUp className="h-3.5 w-3.5" /> Run Another Scan</SectionHeading>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {SCAN_QUICK_ACTIONS.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <Link
+                      key={action.href}
+                      href={action.href}
+                      className="group flex flex-col items-center gap-2 rounded-xl border border-border bg-card px-3 py-4 text-center transition-all hover:border-opacity-60"
+                    >
+                      <div
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border"
+                        style={{ borderColor: `${action.accent}30`, background: `${action.accent}12` }}
+                      >
+                        <Icon className="h-4 w-4" style={{ color: action.accent }} />
+                      </div>
+                      <span className="text-[12px] font-medium leading-tight text-foreground">{action.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           </>
         )}
       </div>
