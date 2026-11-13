@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { ScanProvider } from "@/contexts/scan-context";
+import { ActiveScanProvider } from "@/contexts/active-scan-context";
 import { ActiveScanToast } from "@/components/scan/active-scan-toast";
 import "./globals.css";
 
@@ -29,9 +30,11 @@ export default function RootLayout({
       </head>
       <body style={{ background: '#0a0a0a', color: '#fff', fontFamily: '"Satoshi", sans-serif', margin: 0, padding: 0 }}>
         <ScanProvider>
-          {children}
-          <ActiveScanToast />
-          <Toaster theme="dark" position="bottom-right" />
+          <ActiveScanProvider>
+            {children}
+            <ActiveScanToast />
+            <Toaster theme="dark" position="bottom-right" />
+          </ActiveScanProvider>
         </ScanProvider>
       </body>
     </html>

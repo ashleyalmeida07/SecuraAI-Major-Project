@@ -16,6 +16,7 @@ import { ScanPipeline } from "@/components/ui/scan-pipeline";
 import type { PipelineStage, PipelineNode, NodeResult, NodeStatus } from "@/components/ui/scan-pipeline";
 import { isAuthenticated } from "@/utils/auth";
 import { ScanTabs } from "@/components/scan/scan-tabs";
+import { useActiveScan } from "@/contexts/active-scan-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const ACCENT = "#c084fc";
@@ -241,6 +242,8 @@ export default function LLMAuditPage() {
   const router = useRouter();
   useEffect(() => { if (!isAuthenticated()) router.push("/login"); }, [router]);
 
+  const activeScan = useActiveScan();
+
   const [url, setUrl]                       = useState("");
   const [hint, setHint]                     = useState("");
   const [phase, setPhase]                   = useState<Phase>("idle");
@@ -275,7 +278,12 @@ export default function LLMAuditPage() {
       setNodeResults({ ...nodeResultsRef.current });
     }
     const idx = NODE_ORDER.indexOf(name);
-    if (idx >= 0) setProgressPct(Math.round(((idx + 1) / TOTAL_NODES) * 90) + 5);
+    if (idx >= 0) {
+      const pct = Math.round(((idx + 1) / TOTAL_NODES) * 90) + 5;
+      setProgressPct(pct);
+      // sync global banner
+      if (result?.summary) activeScan.updateScan(result.summary, pct);
+    }
   };
 
   const handleEvent = (data: any, rawState: Record<string, any>) => {
@@ -407,9 +415,11 @@ export default function LLMAuditPage() {
       setProgressPct(100);
       setActivity("Audit complete.");
       setPhase("done");
+      activeScan.finishScan("done");
     } else if (data.event === "error") {
       setErrorMsg(data.message ?? "Unknown error");
       setPhase("error");
+      activeScan.finishScan("error");
     }
   };
 
@@ -430,9 +440,18 @@ export default function LLMAuditPage() {
     LLM_AUDIT_NODES.forEach((n) => { initStatuses[n.id] = "idle"; });
     setNodeStatuses(initStatuses);
 
+    // ── Notify global banner ──
+    activeScan.startScan("LLM Audit", "/scan/llm-audit", ACCENT);
+
+    // ── Notify global banner ──
+    activeScan.startScan("LLM Audit", "/scan/llm-audit", ACCENT);
+
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const rawState: Record<string, any> = {};
+
+    // Track whether backend sent a proper "complete" event
+    let receivedComplete = false;
 
     try {
       const res = await fetch(`${API_BASE}/scan/stream/llm-audit`, {
@@ -441,7 +460,11 @@ export default function LLMAuditPage() {
         body: JSON.stringify({ url: url.trim(), endpoint_hint: hint.trim() || undefined }),
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(`Request failed: ${res.statusText}`);
+      if (!res.ok) throw new Error(
+        res.status === 404
+          ? "LLM Audit endpoint not found — the backend needs to be updated. Run: git pull && restart uvicorn on EC2."
+          : `Request failed: ${res.statusText}`
+      );
       if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
@@ -462,15 +485,23 @@ export default function LLMAuditPage() {
             if (parsed.event === "node_update" && parsed.state) {
               Object.assign(rawState, parsed.state);
             }
+            if (parsed.event === "complete") receivedComplete = true;
             handleEvent(parsed, rawState);
           } catch { /* skip malformed */ }
         }
       }
-      setPhase("done");
+      if (!receivedComplete) {
+        const msg = "Stream ended without a completion signal. The backend may not have the LLM Audit endpoint yet — deploy the latest code to EC2.";
+        setErrorMsg(msg);
+        setPhase("error");
+        activeScan.finishScan("error");
+      }
     } catch (err: unknown) {
       if ((err as { name?: string }).name === "AbortError") return;
-      setErrorMsg(err instanceof Error ? err.message : "Unknown error");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setErrorMsg(msg);
       setPhase("error");
+      activeScan.finishScan("error");
     }
   };
 
@@ -486,6 +517,7 @@ export default function LLMAuditPage() {
     setErrorMsg("");
     setProgressPct(0);
     setActivity("");
+    activeScan.resetScan();
   };
 
   const showPipeline = phase !== "idle";

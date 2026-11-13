@@ -16,6 +16,7 @@ import { ScanPipeline } from "@/components/ui/scan-pipeline";
 import type { PipelineStage, PipelineNode, NodeResult, NodeStatus } from "@/components/ui/scan-pipeline";
 import { isAuthenticated } from "@/utils/auth";
 import { ScanTabs } from "@/components/scan/scan-tabs";
+import { useActiveScan } from "@/contexts/active-scan-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const ACCENT = "#f59e0b";
@@ -321,6 +322,8 @@ export default function BaaSAuditPage() {
   const router = useRouter();
   useEffect(() => { if (!isAuthenticated()) router.push("/login"); }, [router]);
 
+  const activeScan = useActiveScan();
+
   const [url, setUrl]                     = useState("");
   const [phase, setPhase]                 = useState<Phase>("idle");
   const [errorMsg, setErrorMsg]           = useState("");
@@ -352,7 +355,11 @@ export default function BaaSAuditPage() {
       setNodeResults({ ...nodeResultsRef.current });
     }
     const idx = NODE_ORDER.indexOf(name);
-    if (idx >= 0) setProgressPct(Math.round(((idx + 1) / TOTAL_NODES) * 90) + 5);
+    if (idx >= 0) {
+      const pct = Math.round(((idx + 1) / TOTAL_NODES) * 90) + 5;
+      setProgressPct(pct);
+      if (result?.summary) activeScan.updateScan(result.summary, pct);
+    }
   };
 
   const handleEvent = (data: any) => {
@@ -487,9 +494,11 @@ export default function BaaSAuditPage() {
       setProgressPct(100);
       setActivity("Audit complete.");
       setPhase("done");
+      activeScan.finishScan("done");
     } else if (data.event === "error") {
       setErrorMsg(data.message ?? "Unknown error");
       setPhase("error");
+      activeScan.finishScan("error");
     }
   };
 
@@ -510,8 +519,15 @@ export default function BaaSAuditPage() {
     BAAS_AUDIT_NODES.forEach((n) => { initStatuses[n.id] = "idle"; });
     setNodeStatuses(initStatuses);
 
+    // ── Notify global floating banner ──
+    activeScan.startScan("BaaS Audit", "/scan/baas-audit", ACCENT);
+
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+
+    // Track whether we got a proper "complete" event from the backend.
+    // If the stream closes without one, we know the backend endpoint is missing.
+    let receivedComplete = false;
 
     try {
       const res = await fetch(`${API_BASE}/scan/stream/baas-audit`, {
@@ -520,7 +536,11 @@ export default function BaaSAuditPage() {
         body: JSON.stringify({ url: url.trim() }),
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(`Request failed: ${res.statusText}`);
+      if (!res.ok) throw new Error(
+        res.status === 404
+          ? "BaaS Audit endpoint not found — the backend needs to be updated. Run: git pull && restart uvicorn on EC2."
+          : `Request failed: ${res.statusText}`
+      );
       if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
@@ -536,14 +556,29 @@ export default function BaaSAuditPage() {
           if (!line.startsWith("data: ")) continue;
           const j = line.slice(6).trim();
           if (!j) continue;
-          try { handleEvent(JSON.parse(j)); } catch { /* skip malformed */ }
+          try {
+            const parsed = JSON.parse(j);
+            if (parsed.event === "complete") receivedComplete = true;
+            handleEvent(parsed);
+          } catch { /* skip malformed */ }
         }
       }
-      setPhase("done");
+      // Only mark done if the backend sent a proper complete event
+      if (receivedComplete) {
+        // already handled inside handleEvent
+      } else {
+        // Stream ended prematurely — backend endpoint likely not deployed
+        const msg = "Stream ended without a completion signal. The backend may not have the BaaS Audit endpoint yet — deploy the latest code to EC2.";
+        setErrorMsg(msg);
+        setPhase("error");
+        activeScan.finishScan("error");
+      }
     } catch (err: unknown) {
       if ((err as { name?: string }).name === "AbortError") return;
-      setErrorMsg(err instanceof Error ? err.message : "Unknown error");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setErrorMsg(msg);
       setPhase("error");
+      activeScan.finishScan("error");
     }
   };
 
@@ -559,6 +594,7 @@ export default function BaaSAuditPage() {
     setErrorMsg("");
     setProgressPct(0);
     setActivity("");
+    activeScan.resetScan();
   };
 
   const showPipeline = phase !== "idle";
