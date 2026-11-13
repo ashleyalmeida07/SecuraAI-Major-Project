@@ -755,7 +755,7 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
             scan_id = scan.id
 
         try:
-            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting LLM Prompt-Injection Audit...'})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting LLM Prompt-Injection Audit...'})}\n\n"
             async for chunk in llm_audit_graph.astream({
                 "target_url": request.url,
                 "endpoint_hint": request.endpoint_hint,
@@ -770,7 +770,7 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
             }, {"recursion_limit": 60}):
                 for node_name, state_update in chunk.items():
                     accumulated.update(state_update)
-                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\\n\\n"
+                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\n\n"
                     await asyncio.sleep(0.05)
 
             with SessionLocal() as db:
@@ -779,7 +779,7 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
                 scan.finished_at = datetime.datetime.utcnow()
                 scan.raw_data = {"llm_audit_report": accumulated.get("llm_audit_report", {})}
                 db.commit()
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'LLM Audit Complete!', 'scan_id': str(scan_id)})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'LLM Audit Complete!', 'scan_id': str(scan_id)})}\n\n"
         except BaseException as e:
             with SessionLocal() as db:
                 scan = db.query(Scan).get(scan_id)
@@ -791,7 +791,7 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
                 elif scan.status == "running":
                     scan.status = "failed"
                     db.commit()
-            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -808,7 +808,7 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
             scan_id = scan.id
 
         try:
-            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting BaaS Misconfiguration Audit...'})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting BaaS Misconfiguration Audit...'})}\n\n"
             async for chunk in baas_audit_graph.astream({
                 "target_url": request.url,
                 "discovered_urls": [],
@@ -827,7 +827,7 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
             }, {"recursion_limit": 60}):
                 for node_name, state_update in chunk.items():
                     accumulated.update(state_update)
-                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\\n\\n"
+                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\n\n"
                     await asyncio.sleep(0.05)
 
             with SessionLocal() as db:
@@ -836,7 +836,7 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
                 scan.finished_at = datetime.datetime.utcnow()
                 scan.raw_data = {"baas_audit_report": accumulated.get("baas_audit_report", {})}
                 db.commit()
-            yield f"data: {json.dumps({'event': 'complete', 'message': 'BaaS Audit Complete!', 'scan_id': str(scan_id)})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'complete', 'message': 'BaaS Audit Complete!', 'scan_id': str(scan_id)})}\n\n"
         except BaseException as e:
             with SessionLocal() as db:
                 scan = db.query(Scan).get(scan_id)
@@ -848,7 +848,7 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
                 elif scan.status == "running":
                     scan.status = "failed"
                     db.commit()
-            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\\n\\n"
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
