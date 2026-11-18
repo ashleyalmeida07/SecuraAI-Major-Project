@@ -254,6 +254,8 @@ class StaticAnalysisReport(BaseModel):
 
 class BaaSAuditRequest(BaseModel):
     url: str
+    supabase_url: str = ""       # optional: skip auto-detection if provided
+    supabase_anon_key: str = ""  # optional: skip auto-detection if provided
 
 class BaaSFinding(BaseModel):
     category: str  # "read_access" | "write_access" | "storage" | "auth"
@@ -311,29 +313,4 @@ class LLMAuditReport(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
-# ── Flow 7: BaaS Misconfiguration Audit ──────────────────────────────────────
 
-class BaaSAuditRequest(BaseModel):
-    url: str
-
-class BaaSFinding(BaseModel):
-    category: str  # "read_access" | "write_access" | "storage" | "auth"
-    table_or_resource: str
-    status: str  # "pass" | "fail"
-    severity: str = "medium"
-    evidence: str = ""
-    fix_suggestion: str = ""
-
-class BaaSAuditReport(BaseModel):
-    target_url: str
-    baas_provider: str = "none"
-    project_url: str = ""
-    tables_discovered: int = 0
-    scan_timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-    findings: list[dict] = Field(default_factory=list)
-    total_checks: int = 0
-    total_passed: int = 0
-    total_failed: int = 0
-    severity_breakdown: dict = Field(default_factory=dict)
-    summary: str = ""
-    errors: list[str] = Field(default_factory=list)

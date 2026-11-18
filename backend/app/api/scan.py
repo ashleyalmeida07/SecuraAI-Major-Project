@@ -882,9 +882,11 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
                 "target_url": request.url,
                 "discovered_urls": [],
                 "network_requests": [],
-                "baas_provider": "",
-                "project_url": "",
-                "anon_key": "",
+                # If user passed manual credentials, pre-seed them so detect_baas_node
+                # can skip browser crawl and go straight to enumeration.
+                "baas_provider": "supabase" if request.supabase_url else "",
+                "project_url": request.supabase_url.rstrip("/") if request.supabase_url else "",
+                "anon_key": request.supabase_anon_key if request.supabase_anon_key else "",
                 "firebase_config": {},
                 "tables": [],
                 "read_results": [],
