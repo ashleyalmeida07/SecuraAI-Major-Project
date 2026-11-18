@@ -27,27 +27,11 @@ from app.core.llm import get_llm
 
 
 async def detect_baas_node(state: BaaSAuditState) -> dict:
-    """Load target URL in a headless browser and detect Supabase/Firebase usage.
-
-    If the state already has baas_provider + project_url + anon_key pre-seeded
-    (e.g. from manual user input), skip the browser crawl entirely.
-    """
+    """Load target URL in a headless browser and detect Supabase/Firebase usage."""
     target_url = state["target_url"]
+    network_requests: list[dict] = []
     errors: list[str] = []
 
-    # ── Fast path: credentials already provided ──────────────────────────────
-    if state.get("baas_provider") and state.get("project_url") and state.get("anon_key"):
-        return {
-            "network_requests": [],
-            "baas_provider": state["baas_provider"],
-            "project_url": state["project_url"].rstrip("/"),
-            "anon_key": state["anon_key"],
-            "firebase_config": {},
-            "errors": [],
-        }
-
-    # ── Browser-based detection ──────────────────────────────────────────────
-    network_requests: list[dict] = []
     baas_provider = "none"
     project_url = ""
     anon_key = ""
@@ -134,12 +118,8 @@ async def detect_baas_node(state: BaaSAuditState) -> dict:
                 sb_key_match = re.search(r'supabaseKey\s*[=:]\s*["\']([^"\']+)["\']', page_source)
                 if not sb_url_match:
                     sb_url_match = re.search(r'NEXT_PUBLIC_SUPABASE_URL\s*[=:]\s*["\']([^"\']+)["\']', page_source)
-                # Support both classic JWT key and new sb_publishable_ format
                 if not sb_key_match:
-                    sb_key_match = re.search(
-                        r'NEXT_PUBLIC_SUPABASE_(?:ANON_KEY|PUBLISHABLE_KEY)\s*[=:]\s*["\']([^"\']+)["\']',
-                        page_source,
-                    )
+                    sb_key_match = re.search(r'NEXT_PUBLIC_SUPABASE_ANON_KEY\s*[=:]\s*["\']([^"\']+)["\']', page_source)
                 if not sb_url_match:
                     sb_url_match = re.search(r'(https://[a-zA-Z0-9-]+\.supabase\.co)', page_source)
                 if sb_url_match:
@@ -176,38 +156,22 @@ async def detect_baas_node(state: BaaSAuditState) -> dict:
         # --- Fetch external JS bundles for deeper scan ---
         import time  # noqa: PLC0415
         import requests as sync_requests  # noqa: PLC0415
-        js_deadline = time.monotonic() + 30  # 30s budget for bundle downloads
-        for script_url in (script_urls or [])[:50]:  # scan more chunks
+        js_deadline = time.monotonic() + 20  # total budget for bundle downloads
+        for script_url in (script_urls or [])[:20]:
             if _provider != "none" or time.monotonic() > js_deadline:
                 break
             try:
                 r = sync_requests.get(script_url, timeout=5)
                 if r.status_code == 200:
                     js_text = r.text
-                    if "supabase" not in js_text.lower() and "firebase" not in js_text.lower():
-                        continue
-                    if _provider in ("none", "supabase"):
+                    if _provider == "none":
                         sb_url_m = re.search(r'(https://[a-zA-Z0-9-]+\.supabase\.co)', js_text)
-                        # Classic JWT key
                         sb_key_m = re.search(r'eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+', js_text)
-                        # New sb_publishable_ key format
-                        if not sb_key_m:
-                            sb_key_m = re.search(r'(sb_publishable_[A-Za-z0-9_-]+)', js_text)
-                        # Env var assignments in compiled bundles
-                        if not sb_url_m:
-                            sb_url_m = re.search(
-                                r'NEXT_PUBLIC_SUPABASE_URL[^"\']*["\']([^"\']+)["\']', js_text
-                            )
-                        if not sb_key_m:
-                            sb_key_m = re.search(
-                                r'NEXT_PUBLIC_SUPABASE_(?:ANON_KEY|PUBLISHABLE_KEY)[^"\']*["\']([^"\']+)["\']',
-                                js_text,
-                            )
                         if sb_url_m:
                             _provider = "supabase"
                             _proj_url = sb_url_m.group(1).rstrip("/")
                         if sb_key_m and not _anon:
-                            _anon = sb_key_m.group(0) if not sb_key_m.lastindex else sb_key_m.group(1)
+                            _anon = sb_key_m.group(0)
                     if _provider == "none":
                         fb_m = re.search(r'(?:firebaseConfig|firebase\.initializeApp)\s*\(\s*(\{[^}]+\})', js_text, re.DOTALL)
                         if fb_m:

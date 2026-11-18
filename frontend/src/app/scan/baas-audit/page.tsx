@@ -386,9 +386,6 @@ export default function BaaSAuditPage() {
   const activeScan = useActiveScan();
 
   const [url, setUrl]                     = useState("");
-  const [supabaseUrl, setSupabaseUrl]     = useState("");
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState("");
-  const [showAdvanced, setShowAdvanced]   = useState(false);
   const [phase, setPhase]                 = useState<Phase>("idle");
   const [errorMsg, setErrorMsg]           = useState("");
   const [nodeStatuses, setNodeStatuses]   = useState<Record<string, NodeStatus>>({});
@@ -614,11 +611,7 @@ export default function BaaSAuditPage() {
       const res = await fetch(`${API_BASE}/scan/stream/baas-audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({
-          url: url.trim(),
-          ...(supabaseUrl.trim()     && { supabase_url:      supabaseUrl.trim() }),
-          ...(supabaseAnonKey.trim() && { supabase_anon_key: supabaseAnonKey.trim() }),
-        }),
+        body: JSON.stringify({ url: url.trim() }),
         signal: ctrl.signal,
       });
       if (!res.ok) {
@@ -730,47 +723,6 @@ export default function BaaSAuditPage() {
                   disabled={phase === "scanning"}
                 />
               </div>
-            </div>
-
-            {/* Advanced: Manual Supabase Credentials */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors select-none"
-              >
-                <span className="text-xs">{showAdvanced ? "▼" : "▶"}</span>
-                Manual Supabase Credentials
-                <span className="text-xs text-muted-foreground/60">(optional — if auto-detection fails)</span>
-              </button>
-              {showAdvanced && (
-                <div className="mt-3 flex flex-col gap-3 rounded-lg border border-border/50 bg-muted/10 p-4">
-                  <div>
-                    <Label htmlFor="sb-url" className="text-sm font-medium">Supabase Project URL</Label>
-                    <Input
-                      id="sb-url"
-                      type="url"
-                      className="mt-1 h-10 bg-background text-sm focus-visible:ring-primary"
-                      placeholder="https://xxxx.supabase.co"
-                      value={supabaseUrl}
-                      onChange={(e) => setSupabaseUrl(e.target.value)}
-                      disabled={phase === "scanning"}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="sb-key" className="text-sm font-medium">Anon / Publishable Key</Label>
-                    <Input
-                      id="sb-key"
-                      type="text"
-                      className="mt-1 h-10 bg-background font-mono text-xs focus-visible:ring-primary"
-                      placeholder="eyJh… or sb_publishable_…"
-                      value={supabaseAnonKey}
-                      onChange={(e) => setSupabaseAnonKey(e.target.value)}
-                      disabled={phase === "scanning"}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Action buttons */}
