@@ -235,42 +235,83 @@ async def enumerate_tables_node(state: BaaSAuditState) -> dict:
     errors: list[str] = []
 
     if baas_provider == "supabase" and project_url and anon_key:
-        # PostgREST OpenAPI spec endpoint
+        # Detect new publishable key format (sb_publishable_...) vs classic JWT anon key
+        is_publishable_key = anon_key.startswith("sb_publishable_")
+
+        # PostgREST OpenAPI spec endpoint — works with classic JWT anon key only
         try:
             headers = {
                 "apikey": anon_key,
                 "Authorization": f"Bearer {anon_key}",
             }
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{project_url}/rest/v1/",
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        # PostgREST returns OpenAPI spec with paths or definitions
-                        if "paths" in data:
-                            for path_key in data["paths"]:
-                                table_name = path_key.strip("/")
-                                if table_name and not table_name.startswith("rpc/"):
-                                    tables.append(table_name)
-                        elif "definitions" in data:
-                            tables.extend(data["definitions"].keys())
-                    elif resp.status == 401:
-                        body = await resp.text()
-                        # New Supabase publishable keys cannot access PostgREST — flag it
-                        if "Secret API key required" in body:
-                            errors.append(
-                                "enumerate_tables_node: publishable key detected — cannot access "
-                                "PostgREST REST API. The anon key (eyJ... JWT) is required for "
-                                "table enumeration. Get it from: Supabase Dashboard → Project Settings → API → anon public"
-                            )
+                spec_blocked = False
+                if not is_publishable_key:
+                    # Classic key: try to get full table list from OpenAPI spec
+                    async with session.get(
+                        f"{project_url}/rest/v1/",
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=15),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if "paths" in data:
+                                for path_key in data["paths"]:
+                                    table_name = path_key.strip("/")
+                                    if table_name and not table_name.startswith("rpc/"):
+                                        tables.append(table_name)
+                            elif "definitions" in data:
+                                tables.extend(data["definitions"].keys())
+                        elif resp.status == 401:
+                            body = await resp.text()
+                            errors.append(f"enumerate_tables_node: PostgREST returned 401 — key may be invalid. Body: {body[:200]}")
+                            spec_blocked = True
                         else:
-                            errors.append(f"enumerate_tables_node: PostgREST returned {resp.status} — key may be invalid")
+                            errors.append(f"enumerate_tables_node: PostgREST returned {resp.status}")
+                            spec_blocked = True
+                else:
+                    # Publishable key: spec is blocked, skip it
+                    errors.append(
+                        "enumerate_tables_node: publishable key (sb_publishable_...) detected — "
+                        "OpenAPI spec endpoint requires secret key. Falling back to direct table probing."
+                    )
+                    spec_blocked = True
+
+                # Fallback: probe common table names directly when spec is blocked
+                # Publishable keys CAN access individual table endpoints (returns 404 not 401
+                # when table doesn't exist, 200 when it does and RLS is off)
+                if spec_blocked or not tables:
+                    COMMON_SUPABASE_TABLES = [
+                        "users", "profiles", "posts", "comments", "todos", "products",
+                        "orders", "messages", "notifications", "settings", "transactions",
+                        "items", "categories", "tags", "documents", "files", "logs",
+                        "sessions", "events", "tasks", "projects", "teams", "members",
+                        "invoices", "payments", "subscriptions", "customers", "accounts",
+                    ]
+                    probed_tables: list[str] = []
+                    for table_name in COMMON_SUPABASE_TABLES:
+                        try:
+                            async with session.get(
+                                f"{project_url}/rest/v1/{table_name}?limit=1",
+                                headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=5),
+                            ) as probe:
+                                s = probe.status
+                                if s == 200:
+                                    # Table exists and RLS is OFF → critical finding
+                                    probed_tables.append(table_name)
+                                elif s in (401, 403):
+                                    # Table exists but RLS is ON → still add for write tests
+                                    probed_tables.append(table_name)
+                                # 404 / PGRST205 → table doesn't exist, skip
+                        except Exception:
+                            pass
+                    if probed_tables:
+                        tables.extend(probed_tables)
                     else:
                         errors.append(
-                            f"enumerate_tables_node: PostgREST returned {resp.status}"
+                            "enumerate_tables_node: no tables found via direct probing — "
+                            "project may have no public tables or all tables are protected."
                         )
         except Exception as exc:
             errors.append(f"enumerate_tables_node: supabase error: {exc}")
