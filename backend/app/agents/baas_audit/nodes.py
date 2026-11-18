@@ -120,6 +120,11 @@ async def detect_baas_node(state: BaaSAuditState) -> dict:
                     sb_url_match = re.search(r'NEXT_PUBLIC_SUPABASE_URL\s*[=:]\s*["\']([^"\']+)["\']', page_source)
                 if not sb_key_match:
                     sb_key_match = re.search(r'NEXT_PUBLIC_SUPABASE_ANON_KEY\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                # New Supabase publishable key format
+                if not sb_key_match:
+                    sb_key_match = re.search(r'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                if not sb_key_match:
+                    sb_key_match = re.search(r'(sb_publishable_[A-Za-z0-9_-]+)', page_source)
                 if not sb_url_match:
                     sb_url_match = re.search(r'(https://[a-zA-Z0-9-]+\.supabase\.co)', page_source)
                 if sb_url_match:
@@ -166,7 +171,12 @@ async def detect_baas_node(state: BaaSAuditState) -> dict:
                     js_text = r.text
                     if _provider == "none":
                         sb_url_m = re.search(r'(https://[a-zA-Z0-9-]+\.supabase\.co)', js_text)
-                        sb_key_m = re.search(r'eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+', js_text)
+                        # Classic anon key (JWT format) OR new publishable key format
+                        sb_key_m = re.search(
+                            r'eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+'
+                            r'|sb_publishable_[A-Za-z0-9_-]+',
+                            js_text
+                        )
                         if sb_url_m:
                             _provider = "supabase"
                             _proj_url = sb_url_m.group(1).rstrip("/")
@@ -247,6 +257,17 @@ async def enumerate_tables_node(state: BaaSAuditState) -> dict:
                                     tables.append(table_name)
                         elif "definitions" in data:
                             tables.extend(data["definitions"].keys())
+                    elif resp.status == 401:
+                        body = await resp.text()
+                        # New Supabase publishable keys cannot access PostgREST — flag it
+                        if "Secret API key required" in body:
+                            errors.append(
+                                "enumerate_tables_node: publishable key detected — cannot access "
+                                "PostgREST REST API. The anon key (eyJ... JWT) is required for "
+                                "table enumeration. Get it from: Supabase Dashboard → Project Settings → API → anon public"
+                            )
+                        else:
+                            errors.append(f"enumerate_tables_node: PostgREST returned {resp.status} — key may be invalid")
                     else:
                         errors.append(
                             f"enumerate_tables_node: PostgREST returned {resp.status}"
