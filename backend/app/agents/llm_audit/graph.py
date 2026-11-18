@@ -144,7 +144,11 @@ def _build_graph() -> StateGraph:
     return g
 
 
+# Each category can use 4 attacks, 4 judges, 3 mutations and 1 advance.
+# Add detector, connect, report_builder and headroom for graph termination.
+LLM_AUDIT_RECURSION_LIMIT = len(ATTACK_CATEGORIES) * (4 + 4 + 3 + 1) + 3 + 5
+
 _graph = _build_graph()
-llm_audit_graph = _graph.compile()
-# Allow deep attack loops (5 categories × up to 5 prompts × 3 mutations + overhead)
-llm_audit_graph.config = {"recursion_limit": 50}
+llm_audit_graph = _graph.compile().with_config(
+    recursion_limit=LLM_AUDIT_RECURSION_LIMIT
+)

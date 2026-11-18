@@ -21,13 +21,83 @@ from app.agents.header_audit.graph import header_audit_graph
 from app.agents.static_analysis.graph import static_analysis_graph, triage_recursion_limit
 from app.agents.static_analysis.tools import cleanup_clone
 from app.agents.injection.graph import injection_graph
-from app.agents.llm_audit.graph import llm_audit_graph, ATTACK_CATEGORIES
+from app.agents.llm_audit.graph import llm_audit_graph, ATTACK_CATEGORIES, LLM_AUDIT_RECURSION_LIMIT
 from app.agents.baas_audit.graph import baas_audit_graph
 from app.db.session import SessionLocal
 from app.db.models import Scan, FlowRun, User
 from app.api.deps import get_current_user
 
 scan_router = APIRouter(prefix="/scan", tags=["scan"])
+
+SSE_HEARTBEAT_SECONDS = 10
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+async def _stream_graph_sse(graph, initial_state: dict, config: dict, accumulated: dict):
+    """Run a LangGraph graph and yield SSE frames.
+
+    Emits ``node_start`` as each node begins (so the UI can show live progress
+    during slow nodes), ``node_update`` with the node's output when it finishes,
+    and a comment heartbeat while waiting so proxies/browsers keep the stream
+    open. Node outputs are also merged into ``accumulated``.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def producer():
+        try:
+            async for mode, payload in graph.astream(
+                initial_state, config, stream_mode=["tasks", "updates"]
+            ):
+                await queue.put((mode, payload))
+            await queue.put(("done", None))
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # surfaced to the consumer below
+            await queue.put(("error", exc))
+
+    task = asyncio.create_task(producer())
+    try:
+        while True:
+            try:
+                mode, payload = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                yield ": keep-alive\n\n"
+                continue
+
+            if mode == "done":
+                return
+            if mode == "error":
+                raise payload
+            if mode == "tasks":
+                # payload is a tuple of PregelTask named-tuples.
+                # Each has .name, .result, .error attributes (not a dict).
+                if isinstance(payload, (list, tuple)):
+                    for t in payload:
+                        node_name = getattr(t, "name", None)
+                        if node_name and t.result is None and t.error is None:
+                            yield _sse({"event": "node_start", "node": node_name})
+                else:
+                    # Single task object (older LangGraph versions)
+                    node_name = getattr(payload, "name", None)
+                    if node_name and getattr(payload, "result", None) is None and getattr(payload, "error", None) is None:
+                        yield _sse({"event": "node_start", "node": node_name})
+            elif mode == "updates":
+                if isinstance(payload, dict):
+                    for node_name, state_update in payload.items():
+                        if not isinstance(state_update, dict):
+                            continue
+                        accumulated.update(state_update)
+                        yield _sse({"event": "node_update", "node": node_name, "state": state_update})
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
 
 
 @scan_router.post("/recon")
@@ -755,8 +825,8 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
             scan_id = scan.id
 
         try:
-            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting LLM Prompt-Injection Audit...'})}\n\n"
-            async for chunk in llm_audit_graph.astream({
+            yield _sse({'event': 'start', 'message': 'Starting LLM Prompt-Injection Audit...'})
+            async for frame in _stream_graph_sse(llm_audit_graph, {
                 "target_url": request.url,
                 "endpoint_hint": request.endpoint_hint,
                 "ai_surfaces": [],
@@ -767,11 +837,8 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
                 "mutation_count": 0,
                 "llm_audit_report": {},
                 "errors": [],
-            }, {"recursion_limit": 60}):
-                for node_name, state_update in chunk.items():
-                    accumulated.update(state_update)
-                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\n\n"
-                    await asyncio.sleep(0.05)
+            }, {"recursion_limit": LLM_AUDIT_RECURSION_LIMIT}, accumulated):
+                yield frame
 
             with SessionLocal() as db:
                 scan = db.query(Scan).get(scan_id)
@@ -791,7 +858,9 @@ async def stream_llm_audit(request: LLMAuditRequest, current_user: User = Depend
                 elif scan.status == "running":
                     scan.status = "failed"
                     db.commit()
-            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+            if isinstance(e, (asyncio.CancelledError, GeneratorExit)):
+                raise
+            yield _sse({'event': 'error', 'message': str(e) or type(e).__name__})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -808,8 +877,8 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
             scan_id = scan.id
 
         try:
-            yield f"data: {json.dumps({'event': 'start', 'message': 'Starting BaaS Misconfiguration Audit...'})}\n\n"
-            async for chunk in baas_audit_graph.astream({
+            yield _sse({'event': 'start', 'message': 'Starting BaaS Misconfiguration Audit...'})
+            async for frame in _stream_graph_sse(baas_audit_graph, {
                 "target_url": request.url,
                 "discovered_urls": [],
                 "network_requests": [],
@@ -824,11 +893,8 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
                 "auth_results": {},
                 "baas_audit_report": {},
                 "errors": [],
-            }, {"recursion_limit": 60}):
-                for node_name, state_update in chunk.items():
-                    accumulated.update(state_update)
-                    yield f"data: {json.dumps({'event': 'node_update', 'node': node_name, 'state': state_update})}\n\n"
-                    await asyncio.sleep(0.05)
+            }, {"recursion_limit": 60}, accumulated):
+                yield frame
 
             with SessionLocal() as db:
                 scan = db.query(Scan).get(scan_id)
@@ -848,7 +914,9 @@ async def stream_baas_audit(request: BaaSAuditRequest, current_user: User = Depe
                 elif scan.status == "running":
                     scan.status = "failed"
                     db.commit()
-            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+            if isinstance(e, (asyncio.CancelledError, GeneratorExit)):
+                raise
+            yield _sse({'event': 'error', 'message': str(e) or type(e).__name__})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

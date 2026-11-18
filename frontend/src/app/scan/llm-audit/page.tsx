@@ -255,6 +255,7 @@ export default function LLMAuditPage() {
   const [progressPct, setProgressPct]       = useState(0);
   const [activity, setActivity]             = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const progressRef = useRef(0);
 
   // Keep mutable refs for use inside streaming closure
   const attackResultsRef = useRef<AttackResult[]>([]);
@@ -268,8 +269,6 @@ export default function LLMAuditPage() {
   const markNode = (name: string, status: NodeStatus, result?: NodeResult) => {
     setNodeStatuses(prev => {
       const next = { ...prev };
-      // Mark any other running node as done
-      Object.keys(next).forEach(k => { if (next[k] === "active" && k !== name) next[k] = "done"; });
       next[name] = status;
       return next;
     });
@@ -279,11 +278,22 @@ export default function LLMAuditPage() {
     }
     const idx = NODE_ORDER.indexOf(name);
     if (idx >= 0) {
-      const pct = Math.round(((idx + 1) / TOTAL_NODES) * 90) + 5;
+      const step = idx + (status === "active" ? 0.5 : 1);
+      const pct = Math.max(progressRef.current, Math.round((step / TOTAL_NODES) * 90) + 5);
+      progressRef.current = pct;
       setProgressPct(pct);
-      // sync global banner
-      if (result?.summary) activeScan.updateScan(result.summary, pct);
+      const description = status === "active" ? LLM_AUDIT_NODES[idx].activeDesc : result?.summary;
+      if (description) activeScan.updateScan(description, pct);
     }
+  };
+
+  const failScan = (message: string) => {
+    setNodeStatuses((prev) => Object.fromEntries(
+      Object.entries(prev).map(([name, status]) => [name, status === "active" ? "error" : status]),
+    ));
+    setErrorMsg(message);
+    setPhase("error");
+    activeScan.finishScan("error");
   };
 
   const handleEvent = (data: any, rawState: Record<string, any>) => {
@@ -295,9 +305,14 @@ export default function LLMAuditPage() {
       setNodeStatuses(initStatuses);
       setNodeResults({});
       nodeResultsRef.current = {};
+    } else if (data.event === "node_start" && data.node) {
+      const node = LLM_AUDIT_NODES.find((n) => n.id === data.node);
+      if (!node) return;
+      setActivity(node.activeDesc);
+      markNode(node.id, "active");
     } else if (data.event === "node_update" && data.node) {
       const nodeName: string = data.node;
-      const state = data.state || {};
+      const state = rawState;
       const ts = now();
 
       // Accumulate attack results
@@ -403,7 +418,7 @@ export default function LLMAuditPage() {
       }
 
       setActivity(result?.summary || nodeName);
-      markNode(nodeName, "active", result);
+      markNode(nodeName, "done", result);
 
     } else if (data.event === "complete") {
       // Mark all running nodes as done, finalize report node
@@ -412,14 +427,13 @@ export default function LLMAuditPage() {
         Object.keys(next).forEach(k => { if (next[k] === "active") next[k] = "done"; });
         return next;
       });
+      progressRef.current = 100;
       setProgressPct(100);
       setActivity("Audit complete.");
       setPhase("done");
       activeScan.finishScan("done");
     } else if (data.event === "error") {
-      setErrorMsg(data.message ?? "Unknown error");
-      setPhase("error");
-      activeScan.finishScan("error");
+      failScan(data.message ?? "Unknown error");
     }
   };
 
@@ -432,6 +446,7 @@ export default function LLMAuditPage() {
     attackResultsRef.current = [];
     nodeResultsRef.current = {};
     setNodeResults({});
+    progressRef.current = 5;
     setProgressPct(5);
     setActivity("Initialising LLM Prompt-Injection Audit…");
 
@@ -443,15 +458,10 @@ export default function LLMAuditPage() {
     // ── Notify global banner ──
     activeScan.startScan("LLM Audit", "/scan/llm-audit", ACCENT);
 
-    // ── Notify global banner ──
-    activeScan.startScan("LLM Audit", "/scan/llm-audit", ACCENT);
-
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     const rawState: Record<string, any> = {};
 
-    // Track whether backend sent a proper "complete" event
-    let receivedComplete = false;
 
     try {
       const res = await fetch(`${API_BASE}/scan/stream/llm-audit`, {
@@ -460,48 +470,56 @@ export default function LLMAuditPage() {
         body: JSON.stringify({ url: url.trim(), endpoint_hint: hint.trim() || undefined }),
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(
-        res.status === 404
-          ? "LLM Audit endpoint not found — the backend needs to be updated. Run: git pull && restart uvicorn on EC2."
-          : `Request failed: ${res.statusText}`
-      );
+      if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("SecuraAI_user_email");
+          window.location.href = "/login";
+          return;
+        }
+        throw new Error(
+          res.status === 404
+            ? "LLM Audit endpoint not found — the backend needs to be updated. Run: git pull && restart uvicorn on EC2."
+            : `Request failed: ${res.statusText}`
+        );
+      }
       if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const j = line.slice(6).trim();
-          if (!j) continue;
-          try {
-            const parsed = JSON.parse(j);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split(/\r?\n\r?\n/);
+          buffer = frames.pop() || "";
+          for (const frame of frames) {
+            // Comments (including keep-alive heartbeats) carry no scan state.
+            const json = frame.split(/\r?\n/)
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trimStart()).join("\n").trim();
+            if (!json) continue;
+            let parsed;
+            try { parsed = JSON.parse(json); } catch { continue; }
+            if (!parsed || typeof parsed !== "object") continue;
             if (parsed.event === "node_update" && parsed.state) {
               Object.assign(rawState, parsed.state);
             }
-            if (parsed.event === "complete") receivedComplete = true;
             handleEvent(parsed, rawState);
-          } catch { /* skip malformed */ }
+            if (parsed.event === "complete" || parsed.event === "error") return;
+          }
         }
-      }
-      if (!receivedComplete) {
-        const msg = "Stream ended without a completion signal. The backend may not have the LLM Audit endpoint yet — deploy the latest code to EC2.";
-        setErrorMsg(msg);
-        setPhase("error");
-        activeScan.finishScan("error");
+        throw new Error("LLM Audit stream ended before a completion or error signal. Please retry the scan.");
+      } finally {
+        void reader.cancel().catch(() => {});
+        reader.releaseLock();
       }
     } catch (err: unknown) {
       if ((err as { name?: string }).name === "AbortError") return;
       const msg = err instanceof Error ? err.message : "Unknown error";
-      setErrorMsg(msg);
-      setPhase("error");
-      activeScan.finishScan("error");
+      failScan(msg);
     }
   };
 
@@ -515,6 +533,7 @@ export default function LLMAuditPage() {
     attackResultsRef.current = [];
     nodeResultsRef.current = {};
     setErrorMsg("");
+    progressRef.current = 0;
     setProgressPct(0);
     setActivity("");
     activeScan.resetScan();

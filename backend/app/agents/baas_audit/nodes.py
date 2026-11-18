@@ -37,192 +37,160 @@ async def detect_baas_node(state: BaaSAuditState) -> dict:
     anon_key = ""
     firebase_config: dict = {}
 
-    try:
-        from playwright.async_api import async_playwright  # noqa: PLC0415
+    def _run_playwright() -> tuple[list[dict], str, str, str, dict, list[str]]:
+        """Run Playwright synchronously — called via asyncio.to_thread to avoid
+        the Windows ProactorEventLoop subprocess limitation."""
+        _requests: list[dict] = []
+        _errors: list[str] = []
+        _provider = "none"
+        _proj_url = ""
+        _anon = ""
+        _fb_config: dict = {}
+        page_source = ""
 
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
-            page = await browser.new_page()
+        try:
+            from playwright.sync_api import sync_playwright  # noqa: PLC0415
 
-            def _on_request(req: Any) -> None:
-                entry: dict = {
-                    "url": req.url,
-                    "method": req.method,
-                    "headers": dict(req.headers) if req.headers else {},
-                }
-                network_requests.append(entry)
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                page = browser.new_page()
 
-            page.on("request", _on_request)
+                def _on_request(req: Any) -> None:
+                    _requests.append({
+                        "url": req.url,
+                        "method": req.method,
+                        "headers": dict(req.headers) if req.headers else {},
+                    })
 
-            try:
-                await page.goto(target_url, wait_until="networkidle", timeout=30_000)
-            except Exception as exc:
-                errors.append(f"detect_baas_node: page.goto error: {exc}")
+                page.on("request", _on_request)
 
-            # ------ Scan network requests for Supabase / Firebase ------
-            for req_entry in network_requests:
-                url = req_entry.get("url", "")
-                headers = req_entry.get("headers", {})
-
-                # Supabase detection
-                if ".supabase.co" in url:
-                    baas_provider = "supabase"
-                    # Extract project URL (scheme + host)
-                    parsed = urlparse(url)
-                    project_url = f"{parsed.scheme}://{parsed.netloc}"
-                    # Look for anon key
-                    if "apikey" in headers:
-                        anon_key = headers["apikey"]
-                    auth_header = headers.get("authorization", "")
-                    if auth_header.startswith("Bearer ") and not anon_key:
-                        anon_key = auth_header.split("Bearer ", 1)[1].strip()
-
-                # Firebase detection
-                if any(
-                    pat in url
-                    for pat in [
-                        ".firebaseio.com",
-                        ".firebaseapp.com",
-                        "identitytoolkit.googleapis.com",
-                    ]
-                ):
-                    baas_provider = "firebase"
-
-            # ------ Scan page JavaScript source for config objects ------
-            try:
-                page_source = await page.content()
-
-                # Supabase: supabaseUrl / supabaseKey
-                if baas_provider == "none" or baas_provider == "supabase":
-                    sb_url_match = re.search(
-                        r'supabaseUrl\s*[=:]\s*["\']([^"\']+)["\']', page_source
-                    )
-                    sb_key_match = re.search(
-                        r'supabaseKey\s*[=:]\s*["\']([^"\']+)["\']', page_source
-                    )
-                    # Also try NEXT_PUBLIC_ patterns
-                    if not sb_url_match:
-                        sb_url_match = re.search(
-                            r'NEXT_PUBLIC_SUPABASE_URL\s*[=:]\s*["\']([^"\']+)["\']',
-                            page_source,
-                        )
-                    if not sb_key_match:
-                        sb_key_match = re.search(
-                            r'NEXT_PUBLIC_SUPABASE_ANON_KEY\s*[=:]\s*["\']([^"\']+)["\']',
-                            page_source,
-                        )
-                    # Try generic supabase patterns
-                    if not sb_url_match:
-                        sb_url_match = re.search(
-                            r'(https://[a-zA-Z0-9-]+\.supabase\.co)', page_source
-                        )
-                    if sb_url_match:
-                        baas_provider = "supabase"
-                        if not project_url:
-                            project_url = sb_url_match.group(1).rstrip("/")
-                    if sb_key_match and not anon_key:
-                        anon_key = sb_key_match.group(1)
-
-                # Firebase: firebaseConfig object
-                if baas_provider == "none" or baas_provider == "firebase":
-                    fb_match = re.search(
-                        r'(?:firebaseConfig|firebase\.initializeApp)\s*\(\s*(\{[^}]+\})',
-                        page_source,
-                        re.DOTALL,
-                    )
-                    if fb_match:
-                        try:
-                            # Attempt to parse the JS object as JSON (works for
-                            # simple configs with quoted keys)
-                            raw = fb_match.group(1)
-                            # Fix JS-style keys: apiKey → "apiKey"
-                            raw_fixed = re.sub(
-                                r'(\w+)\s*:', r'"\1":', raw
-                            )
-                            raw_fixed = raw_fixed.replace("'", '"')
-                            firebase_config = json.loads(raw_fixed)
-                            baas_provider = "firebase"
-                        except Exception:
-                            pass
-
-                    # Also look for individual Firebase config values
-                    if baas_provider != "firebase":
-                        api_key_match = re.search(
-                            r'apiKey\s*[=:]\s*["\']([^"\']+)["\']', page_source
-                        )
-                        auth_domain_match = re.search(
-                            r'authDomain\s*[=:]\s*["\']([^"\']+)["\']', page_source
-                        )
-                        project_id_match = re.search(
-                            r'projectId\s*[=:]\s*["\']([^"\']+)["\']', page_source
-                        )
-                        if api_key_match and (auth_domain_match or project_id_match):
-                            baas_provider = "firebase"
-                            firebase_config = {
-                                "apiKey": api_key_match.group(1),
-                            }
-                            if auth_domain_match:
-                                firebase_config["authDomain"] = auth_domain_match.group(1)
-                            if project_id_match:
-                                firebase_config["projectId"] = project_id_match.group(1)
-
-                # Extract script source URLs and fetch them for deeper scanning
-                script_urls = await page.eval_on_selector_all(
-                    "script[src]", "els => els.map(e => e.src)"
-                )
-                for script_url in script_urls[:20]:  # cap to prevent abuse
+                page.set_default_timeout(15_000)
+                try:
+                    page.goto(target_url, wait_until="load", timeout=20_000)
+                    # Give SPA bundles a short, bounded window to fire their API calls.
+                    # Sites with long-polling/analytics never reach "networkidle".
                     try:
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(
-                                script_url,
-                                timeout=aiohttp.ClientTimeout(total=10),
-                            ) as resp:
-                                if resp.status == 200:
-                                    js_text = await resp.text()
+                        page.wait_for_load_state("networkidle", timeout=5_000)
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    _errors.append(f"detect_baas_node: page.goto error: {exc}")
 
-                                    # Supabase in JS bundles
-                                    if baas_provider == "none":
-                                        sb_url_m = re.search(
-                                            r'(https://[a-zA-Z0-9-]+\.supabase\.co)',
-                                            js_text,
-                                        )
-                                        sb_key_m = re.search(
-                                            r'eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+',
-                                            js_text,
-                                        )
-                                        if sb_url_m:
-                                            baas_provider = "supabase"
-                                            project_url = sb_url_m.group(1).rstrip("/")
-                                        if sb_key_m and not anon_key:
-                                            anon_key = sb_key_m.group(0)
+                # ------ Scan network requests ------
+                for req_entry in _requests:
+                    url = req_entry.get("url", "")
+                    headers = req_entry.get("headers", {})
 
-                                    # Firebase in JS bundles
-                                    if baas_provider == "none":
-                                        fb_m = re.search(
-                                            r'(?:firebaseConfig|firebase\.initializeApp)\s*\(\s*(\{[^}]+\})',
-                                            js_text,
-                                            re.DOTALL,
-                                        )
-                                        if fb_m:
-                                            try:
-                                                raw = fb_m.group(1)
-                                                raw_fixed = re.sub(
-                                                    r'(\w+)\s*:', r'"\1":', raw
-                                                )
-                                                raw_fixed = raw_fixed.replace("'", '"')
-                                                firebase_config = json.loads(raw_fixed)
-                                                baas_provider = "firebase"
-                                            except Exception:
-                                                pass
+                    if ".supabase.co" in url:
+                        _provider = "supabase"
+                        parsed = urlparse(url)
+                        _proj_url = f"{parsed.scheme}://{parsed.netloc}"
+                        if "apikey" in headers:
+                            _anon = headers["apikey"]
+                        auth_header = headers.get("authorization", "")
+                        if auth_header.startswith("Bearer ") and not _anon:
+                            _anon = auth_header.split("Bearer ", 1)[1].strip()
+
+                    if any(pat in url for pat in [".firebaseio.com", ".firebaseapp.com", "identitytoolkit.googleapis.com"]):
+                        _provider = "firebase"
+
+                # ------ Scan page source ------
+                try:
+                    page_source = page.content()
+                except Exception as exc:
+                    _errors.append(f"detect_baas_node: source scan error: {exc}")
+
+                # Extract script URLs
+                try:
+                    script_urls = page.eval_on_selector_all("script[src]", "els => els.map(e => e.src)")
+                except Exception:
+                    script_urls = []
+
+                browser.close()
+        except Exception as exc:
+            _errors.append(f"detect_baas_node: playwright error: {exc}")
+            return _requests, _provider, _proj_url, _anon, _fb_config, _errors
+
+        # --- Parse page_source for Supabase / Firebase config ---
+        if page_source:
+            if _provider == "none" or _provider == "supabase":
+                sb_url_match = re.search(r'supabaseUrl\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                sb_key_match = re.search(r'supabaseKey\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                if not sb_url_match:
+                    sb_url_match = re.search(r'NEXT_PUBLIC_SUPABASE_URL\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                if not sb_key_match:
+                    sb_key_match = re.search(r'NEXT_PUBLIC_SUPABASE_ANON_KEY\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                if not sb_url_match:
+                    sb_url_match = re.search(r'(https://[a-zA-Z0-9-]+\.supabase\.co)', page_source)
+                if sb_url_match:
+                    _provider = "supabase"
+                    if not _proj_url:
+                        _proj_url = sb_url_match.group(1).rstrip("/")
+                if sb_key_match and not _anon:
+                    _anon = sb_key_match.group(1)
+
+            if _provider == "none" or _provider == "firebase":
+                fb_match = re.search(r'(?:firebaseConfig|firebase\.initializeApp)\s*\(\s*(\{[^}]+\})', page_source, re.DOTALL)
+                if fb_match:
+                    try:
+                        raw = fb_match.group(1)
+                        raw_fixed = re.sub(r'(\w+)\s*:', r'"\1":', raw)
+                        raw_fixed = raw_fixed.replace("'", '"')
+                        _fb_config = json.loads(raw_fixed)
+                        _provider = "firebase"
                     except Exception:
                         pass
 
-            except Exception as exc:
-                errors.append(f"detect_baas_node: source scan error: {exc}")
+                if _provider != "firebase":
+                    api_key_match = re.search(r'apiKey\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                    auth_domain_match = re.search(r'authDomain\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                    project_id_match = re.search(r'projectId\s*[=:]\s*["\']([^"\']+)["\']', page_source)
+                    if api_key_match and (auth_domain_match or project_id_match):
+                        _provider = "firebase"
+                        _fb_config = {"apiKey": api_key_match.group(1)}
+                        if auth_domain_match:
+                            _fb_config["authDomain"] = auth_domain_match.group(1)
+                        if project_id_match:
+                            _fb_config["projectId"] = project_id_match.group(1)
 
-            await browser.close()
-    except Exception as exc:
-        errors.append(f"detect_baas_node: playwright error: {exc}")
+        # --- Fetch external JS bundles for deeper scan ---
+        import time  # noqa: PLC0415
+        import requests as sync_requests  # noqa: PLC0415
+        js_deadline = time.monotonic() + 20  # total budget for bundle downloads
+        for script_url in (script_urls or [])[:20]:
+            if _provider != "none" or time.monotonic() > js_deadline:
+                break
+            try:
+                r = sync_requests.get(script_url, timeout=5)
+                if r.status_code == 200:
+                    js_text = r.text
+                    if _provider == "none":
+                        sb_url_m = re.search(r'(https://[a-zA-Z0-9-]+\.supabase\.co)', js_text)
+                        sb_key_m = re.search(r'eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+', js_text)
+                        if sb_url_m:
+                            _provider = "supabase"
+                            _proj_url = sb_url_m.group(1).rstrip("/")
+                        if sb_key_m and not _anon:
+                            _anon = sb_key_m.group(0)
+                    if _provider == "none":
+                        fb_m = re.search(r'(?:firebaseConfig|firebase\.initializeApp)\s*\(\s*(\{[^}]+\})', js_text, re.DOTALL)
+                        if fb_m:
+                            try:
+                                raw = fb_m.group(1)
+                                raw_fixed = re.sub(r'(\w+)\s*:', r'"\1":', raw)
+                                raw_fixed = raw_fixed.replace("'", '"')
+                                _fb_config = json.loads(raw_fixed)
+                                _provider = "firebase"
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+        return _requests, _provider, _proj_url, _anon, _fb_config, _errors
+
+    # Run Playwright in a thread to avoid Windows event-loop issues
+    network_requests, baas_provider, project_url, anon_key, firebase_config, errors = \
+        await asyncio.to_thread(_run_playwright)
 
     # For Firebase: extract project_url and anon_key from config
     if baas_provider == "firebase" and firebase_config:
@@ -1080,10 +1048,10 @@ async def report_builder_node(state: BaaSAuditState) -> dict:
                 f"Security standards: {', '.join(standard_mappings) if standard_mappings else 'none'}\n\n"
                 "Write a concise 3-5 sentence executive summary covering risk level, main findings, and recommended actions."
             )
-            resp = await llm.ainvoke(s_prompt)
+            resp = await asyncio.wait_for(llm.ainvoke(s_prompt), timeout=30)
             summary = resp.content.strip() if hasattr(resp, "content") else str(resp).strip()
         except Exception as exc:
-            errors.append(f"report_builder_node summary error: {exc}")
+            errors.append(f"report_builder_node summary error: {type(exc).__name__}: {exc}")
             summary = (
                 f"BaaS audit complete for {baas_provider}. "
                 f"{total_failed} of {total_checks} checks failed. "

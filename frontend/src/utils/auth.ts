@@ -49,7 +49,23 @@ export function getToken() {
 }
 
 export function isAuthenticated() {
-  return !!getToken();
+  const token = getToken();
+  if (!token) return false;
+  // Check if JWT is expired by decoding the payload (base64url)
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      // Token expired — clean up
+      localStorage.removeItem('token');
+      localStorage.removeItem('SecuraAI_user_email');
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {

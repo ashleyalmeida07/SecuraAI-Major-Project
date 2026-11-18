@@ -149,22 +149,81 @@ interface TestResult {
   evidence: string;
   table?: string;
 }
+interface BaaSTestOutput {
+  status: TestResult["verdict"];
+  evidence: string;
+  table?: string;
+  resource?: string;
+}
+interface BaaSFinding extends BaaSTestOutput {
+  category: "read_access" | "write_access" | "storage" | "auth";
+  table_or_resource: string;
+  severity: string;
+  fix_suggestion: string;
+}
 interface BaaSAuditReport {
   target_url: string;
-  provider: string;
+  baas_provider: "none" | "supabase" | "firebase";
   total_checks: number;
   total_passed: number;
   total_failed: number;
   summary: string;
-  test_results: TestResult[];
+  findings: BaaSFinding[];
   errors: string[];
+}
+interface BaaSAuditState {
+  baas_provider?: BaaSAuditReport["baas_provider"];
+  project_url?: string;
+  anon_key?: string;
+  tables?: string[];
+  read_results?: BaaSTestOutput[];
+  write_results?: BaaSTestOutput[];
+  storage_results?: BaaSTestOutput[];
+  auth_results?: { signup_test?: TestResult["verdict"]; evidence?: string };
+  baas_audit_report?: BaaSAuditReport;
+}
+interface BaaSAuditEvent {
+  event: string;
+  node?: string;
+  state?: BaaSAuditState;
+  message?: string;
+}
+
+function mapTestResults(state: BaaSAuditState): TestResult[] {
+  if (state.baas_audit_report?.findings) {
+    return state.baas_audit_report.findings.map((finding) => ({
+      category_id: finding.category === "storage" ? "storage_test" : finding.category === "auth" ? "auth_config" : finding.category,
+      verdict: finding.status,
+      evidence: finding.evidence,
+      table: finding.table_or_resource,
+    }));
+  }
+  const results = [
+    ...(state.read_results || []).map((result) => ({ ...result, category_id: "read_access" })),
+    ...(state.write_results || []).map((result) => ({ ...result, category_id: "write_access" })),
+    ...(state.storage_results || []).map((result) => ({ ...result, category_id: "storage_test" })),
+  ].map((result) => ({
+    category_id: result.category_id,
+    verdict: result.status,
+    evidence: result.evidence,
+    table: result.table || result.resource,
+  }));
+  if (state.auth_results?.signup_test) {
+    results.push({
+      category_id: "auth_config",
+      verdict: state.auth_results.signup_test,
+      evidence: state.auth_results.evidence || "",
+      table: "signup_config",
+    });
+  }
+  return results;
 }
 
 // ── Detail renderers ──────────────────────────────────────────────────────────
-function DetectorDetail({ state }: { state: any }) {
-  const projectUrl: string = state?.project_url || "";
-  const provider: string   = state?.provider || "";
-  if (!provider) return <p className="text-xs text-muted-foreground">No BaaS backend detected.</p>;
+function DetectorDetail({ state }: { state: BaaSAuditState }) {
+  const projectUrl: string = state.project_url || "";
+  const provider = state.baas_provider;
+  if (!provider || provider === "none") return <p className="text-xs text-muted-foreground">No BaaS backend detected.</p>;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs">
@@ -182,7 +241,7 @@ function DetectorDetail({ state }: { state: any }) {
   );
 }
 
-function EnumeratorDetail({ state }: { state: any }) {
+function EnumeratorDetail({ state }: { state: BaaSAuditState }) {
   const tables: string[] = state?.tables || [];
   if (!tables.length) return <p className="text-xs text-muted-foreground">No tables discovered.</p>;
   return (
@@ -246,6 +305,8 @@ function ReportDetail({ report, testResults }: { report: BaaSAuditReport; testRe
     if (!relevant.length) return { verdict: "none" as const, evidence: "Not tested" };
     const failed = relevant.filter((r) => r.verdict === "fail");
     if (failed.length) return { verdict: "fail" as const, evidence: failed[0].evidence };
+    const error = relevant.find((r) => r.verdict === "error");
+    if (error) return { verdict: "error" as const, evidence: error.evidence };
     return { verdict: "pass" as const, evidence: relevant[0]?.evidence || "All checks passed" };
   };
 
@@ -334,6 +395,7 @@ export default function BaaSAuditPage() {
   const [progressPct, setProgressPct]     = useState(0);
   const [activity, setActivity]           = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const progressRef = useRef(0);
 
   const testResultsRef = useRef<TestResult[]>([]);
   const nodeResultsRef = useRef<Record<string, NodeResult>>({});
@@ -346,7 +408,6 @@ export default function BaaSAuditPage() {
   const markNode = (name: string, status: NodeStatus, result?: NodeResult) => {
     setNodeStatuses((prev) => {
       const next = { ...prev };
-      Object.keys(next).forEach((k) => { if (next[k] === "active" && k !== name) next[k] = "done"; });
       next[name] = status;
       return next;
     });
@@ -356,13 +417,25 @@ export default function BaaSAuditPage() {
     }
     const idx = NODE_ORDER.indexOf(name);
     if (idx >= 0) {
-      const pct = Math.round(((idx + 1) / TOTAL_NODES) * 90) + 5;
+      const step = idx + (status === "active" ? 0.5 : 1);
+      const pct = Math.max(progressRef.current, Math.round((step / TOTAL_NODES) * 90) + 5);
+      progressRef.current = pct;
       setProgressPct(pct);
-      if (result?.summary) activeScan.updateScan(result.summary, pct);
+      const description = status === "active" ? BAAS_AUDIT_NODES[idx].activeDesc : result?.summary;
+      if (description) activeScan.updateScan(description, pct);
     }
   };
 
-  const handleEvent = (data: any) => {
+  const failScan = (message: string) => {
+    setNodeStatuses((prev) => Object.fromEntries(
+      Object.entries(prev).map(([name, status]) => [name, status === "active" ? "error" : status]),
+    ));
+    setErrorMsg(message);
+    setPhase("error");
+    activeScan.finishScan("error");
+  };
+
+  const handleEvent = (data: BaaSAuditEvent, rawState: BaaSAuditState) => {
     if (data.event === "start") {
       setProgressPct(5);
       setActivity("Initialising BaaS Misconfiguration Audit…");
@@ -371,21 +444,24 @@ export default function BaaSAuditPage() {
       setNodeStatuses(initStatuses);
       setNodeResults({});
       nodeResultsRef.current = {};
+    } else if (data.event === "node_start" && data.node) {
+      const node = BAAS_AUDIT_NODES.find((n) => n.id === data.node);
+      if (!node) return;
+      setActivity(node.activeDesc);
+      markNode(node.id, "active");
     } else if (data.event === "node_update" && data.node) {
       const nodeName: string = data.node;
-      const state = data.state || {};
+      const state = rawState;
       const ts = now();
 
-      if (state.test_results) {
-        testResultsRef.current = state.test_results;
-        setTestResults([...testResultsRef.current]);
-      }
+      testResultsRef.current = mapTestResults(state);
+      setTestResults([...testResultsRef.current]);
       if (state.baas_audit_report) setReport(state.baas_audit_report);
 
       let result: NodeResult | undefined;
 
       if (nodeName === "detect_baas") {
-        const provider: string = state.provider || "";
+        const provider = state.baas_provider === "none" ? "" : state.baas_provider;
         result = {
           timestamp: ts,
           summary: provider
@@ -416,9 +492,11 @@ export default function BaaSAuditPage() {
         const failed = relevant.filter((r) => r.verdict === "fail");
         result = {
           timestamp: ts,
-          summary: relevant.length
+          summary: relevant.some((r) => r.verdict === "error")
+            ? "Some read access checks could not be completed — review the results"
+            : relevant.length
             ? `${failed.length} table${failed.length !== 1 ? "s" : ""} readable without authentication`
-            : "Testing anonymous read access…",
+            : "No read access results returned",
           metrics: [
             { label: "Tested",     value: relevant.length, tone: "neutral" },
             { label: "Vulnerable", value: failed.length,   tone: failed.length > 0 ? "danger" : "success" },
@@ -433,7 +511,8 @@ export default function BaaSAuditPage() {
           timestamp: ts,
           summary: failed.length
             ? `Anonymous write succeeded on ${failed.length} table${failed.length !== 1 ? "s" : ""} — probe row cleaned up`
-            : relevant.length ? "Anonymous write correctly blocked" : "Testing anonymous write access…",
+            : relevant.some((r) => r.verdict === "error") ? "Some write access checks could not be completed — review the results"
+            : relevant.length ? "Anonymous write correctly blocked" : "No write access results returned",
           metrics: [
             { label: "Tested",     value: relevant.length, tone: "neutral" },
             { label: "Vulnerable", value: failed.length,   tone: failed.length > 0 ? "danger" : "success" },
@@ -448,57 +527,57 @@ export default function BaaSAuditPage() {
           timestamp: ts,
           summary: failed.length
             ? "Storage buckets publicly listable without authentication"
-            : relevant.length ? "Storage buckets correctly locked" : "Checking storage bucket access…",
+            : relevant.some((r) => r.verdict === "error") ? "Storage access checks could not be completed — review the results"
+            : relevant.length ? "Storage buckets correctly locked" : "No storage access results returned",
           metrics: [{ label: "Buckets Exposed", value: failed.length, tone: failed.length > 0 ? "danger" : "success" }],
           handoff: "Storage results → Auth Config Test",
+          detail: relevant.length > 0 ? <AccessTestDetail results={testResultsRef.current} nodeId="storage_test" /> : undefined,
         };
       } else if (nodeName === "auth_config") {
         const relevant = testResultsRef.current.filter((r) => r.category_id === "auth_config");
-        const failed = relevant.filter((r) => r.verdict === "fail");
+        const check = relevant[0];
         result = {
           timestamp: ts,
-          summary: failed.length
-            ? "Signup returns a session token immediately — email confirmation is OFF"
-            : relevant.length ? "Email confirmation is required (correctly configured)" : "Testing auth signup configuration…",
-          metrics: [{ label: "Confirmation Required", value: failed.length > 0 ? "No" : "Yes", tone: failed.length > 0 ? "danger" : "success" }],
+          summary: check?.evidence || "No auth configuration results returned",
+          metrics: check ? [{ label: "Signup Check", value: check.verdict.toUpperCase(), tone: check.verdict === "fail" ? "danger" : check.verdict === "pass" ? "success" : "warn" }] : [],
           handoff: "Auth results → Report Builder",
+          detail: relevant.length > 0 ? <AccessTestDetail results={testResultsRef.current} nodeId="auth_config" /> : undefined,
         };
       } else if (nodeName === "report_builder") {
-        const rpt: BaaSAuditReport = state.baas_audit_report || {};
+        const rpt = state.baas_audit_report;
         result = {
           timestamp: ts,
-          summary: rpt.total_failed != null
+          summary: rpt?.total_failed != null
             ? `${rpt.total_failed} misconfiguration${rpt.total_failed !== 1 ? "s" : ""} found across ${rpt.total_checks} checks`
             : "Building report…",
-          metrics: rpt.total_checks != null
+          metrics: rpt?.total_checks != null
             ? [
                 { label: "Checks",  value: rpt.total_checks, tone: "neutral" },
                 { label: "Vulns",   value: rpt.total_failed,  tone: rpt.total_failed > 0 ? "danger" : "success" },
                 { label: "Passed",  value: rpt.total_passed,  tone: "success" },
               ]
             : [],
-          detail: rpt.total_checks != null
+          detail: rpt?.total_checks != null
             ? <ReportDetail report={rpt} testResults={testResultsRef.current} />
             : undefined,
         };
       }
 
       setActivity(result?.summary || nodeName);
-      markNode(nodeName, "active", result);
+      markNode(nodeName, "done", result);
     } else if (data.event === "complete") {
       setNodeStatuses((prev) => {
         const next = { ...prev };
         Object.keys(next).forEach((k) => { if (next[k] === "active") next[k] = "done"; });
         return next;
       });
+      progressRef.current = 100;
       setProgressPct(100);
       setActivity("Audit complete.");
       setPhase("done");
       activeScan.finishScan("done");
     } else if (data.event === "error") {
-      setErrorMsg(data.message ?? "Unknown error");
-      setPhase("error");
-      activeScan.finishScan("error");
+      failScan(data.message ?? "Unknown error");
     }
   };
 
@@ -511,6 +590,7 @@ export default function BaaSAuditPage() {
     testResultsRef.current = [];
     nodeResultsRef.current = {};
     setNodeResults({});
+    progressRef.current = 5;
     setProgressPct(5);
     setActivity("Initialising BaaS Misconfiguration Audit…");
 
@@ -525,9 +605,7 @@ export default function BaaSAuditPage() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    // Track whether we got a proper "complete" event from the backend.
-    // If the stream closes without one, we know the backend endpoint is missing.
-    let receivedComplete = false;
+    const rawState: BaaSAuditState = {};
 
     try {
       const res = await fetch(`${API_BASE}/scan/stream/baas-audit`, {
@@ -536,49 +614,56 @@ export default function BaaSAuditPage() {
         body: JSON.stringify({ url: url.trim() }),
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(
-        res.status === 404
-          ? "BaaS Audit endpoint not found — the backend needs to be updated. Run: git pull && restart uvicorn on EC2."
-          : `Request failed: ${res.statusText}`
-      );
+      if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("SecuraAI_user_email");
+          window.location.href = "/login";
+          return;
+        }
+        throw new Error(
+          res.status === 404
+            ? "BaaS Audit endpoint not found — the backend needs to be updated. Run: git pull && restart uvicorn on EC2."
+            : `Request failed: ${res.statusText}`
+        );
+      }
       if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const j = line.slice(6).trim();
-          if (!j) continue;
-          try {
-            const parsed = JSON.parse(j);
-            if (parsed.event === "complete") receivedComplete = true;
-            handleEvent(parsed);
-          } catch { /* skip malformed */ }
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split(/\r?\n\r?\n/);
+          buffer = frames.pop() || "";
+          for (const frame of frames) {
+            // Comments (including keep-alive heartbeats) carry no scan state.
+            const json = frame.split(/\r?\n/)
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trimStart()).join("\n").trim();
+            if (!json) continue;
+            let parsed: BaaSAuditEvent;
+            try { parsed = JSON.parse(json); } catch { continue; }
+            if (!parsed || typeof parsed !== "object") continue;
+            if (parsed.event === "node_update" && parsed.state) {
+              Object.assign(rawState, parsed.state);
+            }
+            handleEvent(parsed, rawState);
+            if (parsed.event === "complete" || parsed.event === "error") return;
+          }
         }
-      }
-      // Only mark done if the backend sent a proper complete event
-      if (receivedComplete) {
-        // already handled inside handleEvent
-      } else {
-        // Stream ended prematurely — backend endpoint likely not deployed
-        const msg = "Stream ended without a completion signal. The backend may not have the BaaS Audit endpoint yet — deploy the latest code to EC2.";
-        setErrorMsg(msg);
-        setPhase("error");
-        activeScan.finishScan("error");
+        throw new Error("BaaS Audit stream ended before a completion or error signal. Please retry the scan.");
+      } finally {
+        void reader.cancel().catch(() => {});
+        reader.releaseLock();
       }
     } catch (err: unknown) {
       if ((err as { name?: string }).name === "AbortError") return;
       const msg = err instanceof Error ? err.message : "Unknown error";
-      setErrorMsg(msg);
-      setPhase("error");
-      activeScan.finishScan("error");
+      failScan(msg);
     }
   };
 
@@ -592,6 +677,7 @@ export default function BaaSAuditPage() {
     testResultsRef.current = [];
     nodeResultsRef.current = {};
     setErrorMsg("");
+    progressRef.current = 0;
     setProgressPct(0);
     setActivity("");
     activeScan.resetScan();
@@ -740,7 +826,7 @@ export default function BaaSAuditPage() {
         )}
 
         {/* No BaaS detected */}
-        {scanComplete && report && !report.provider && (
+        {scanComplete && report && report.baas_provider === "none" && (
           <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16 text-center">
             <Server className="mb-4 h-10 w-10 text-muted-foreground/30" />
             <h3 className="mb-2 text-base font-semibold text-foreground">No BaaS Backend Detected</h3>
@@ -751,12 +837,12 @@ export default function BaaSAuditPage() {
         )}
 
         {/* Summary stats when done */}
-        {scanComplete && report && report.provider && (
+        {scanComplete && report && report.baas_provider !== "none" && (
           <div className="flex flex-col gap-4">
             {/* Provider badge */}
             <div className="flex items-center gap-2">
               <span className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs font-bold tracking-wider text-amber-400">
-                {report.provider.toUpperCase()} DETECTED
+                {report.baas_provider.toUpperCase()} DETECTED
               </span>
               {report.total_failed === 0 ? (
                 <span className="flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 text-xs font-semibold text-emerald-400">
