@@ -39,7 +39,7 @@ import {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const DEFAULT_API = "http://localhost:8000/api/v1";
+const DEFAULT_API = "https://52.63.249.202.nip.io/api/v1";
 
 function resolveConfig() {
   const api = (process.env.SECURA_API || DEFAULT_API).replace(/\/+$/, "");
