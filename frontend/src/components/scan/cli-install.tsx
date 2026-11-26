@@ -19,7 +19,7 @@ interface Cmd {
   note: string;
 }
 
-const INSTALL: Cmd = { cmd: "npm i -g @SecuraAI/secura", note: "Install once (Node ≥ 18)" };
+const INSTALL: Cmd = { cmd: "npm i -g @authtrack/secura", note: "Install once (Node ≥ 18)" };
 
 const EXAMPLES: Cmd[] = [
   { cmd: "secura scan .", note: "Scan the current directory" },
@@ -93,7 +93,7 @@ export function CliInstall() {
           <CommandRow {...INSTALL} />
           <p className="pl-1 text-[11px] leading-5 text-muted-foreground">
             No install?{" "}
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">npx @SecuraAI/secura scan .</code>{" "}
+            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[10px]">npx @authtrack/secura scan .</code>{" "}
             runs it once.
           </p>
         </div>
